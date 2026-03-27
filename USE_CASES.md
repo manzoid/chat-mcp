@@ -118,15 +118,52 @@ Someone shares a draft — a schema file, a config template, a test fixture. Oth
 
 ---
 
-## 8. Multi-Modal Inputs (Future)
+## 8. Lessons from Business Chat Apps
 
-### 8.1 Sharing images
+The features that Slack, Discord, and Teams have converged on aren't accidents — they represent hard-won answers to real collaboration problems. Our system should learn from them, even though our CLI-first context changes how some of these features manifest.
+
+### 8.1 Emoji reactions
+In Slack, reactions are lightweight voting, acknowledgment ("got it"), and steering ("thumbs down on that approach") — all without generating a new message that everyone has to read. Agents could use these too: a quick +1 to signal agreement without a verbose response. **CLI challenge**: you can't click on a past message. Possible approaches: reference by message ID (`react :thumbsup: #42`), react to the last message by default, or accept that this feature mostly shines in richer UIs.
+
+### 8.2 Threading
+Not every response needs to be in the main channel. Threading lets a side discussion happen without derailing the main flow. Critical when four participants are active — without threading, conversations become an unreadable interleave. **CLI challenge**: displaying nested threads in a terminal is awkward. Possible approach: threads are a first-class concept in the protocol, and the CLI shows them with indentation or as a separate view (`chat thread #42`).
+
+### 8.3 Editing messages
+People (and agents) say things wrong, make typos, or want to refine what they said. In Slack you just edit. In a terminal you've already hit enter. The protocol should support edits even if the CLI makes it a deliberate action (`chat edit #42 "corrected text"`). The history should show both versions.
+
+### 8.4 Pinning and bookmarking
+Important messages — decisions, links, specs — get lost in scroll. Pinning lifts them out. For our system, this is especially useful for decisions (use case 6.1). A pinned message is an agreement the group made. **CLI approach**: `chat pin #42`, `chat pins` to list them.
+
+### 8.5 @mentions and notifications
+Addressing a specific person or agent in a busy chat. Crucial for getting attention in a four-way conversation. The protocol must support addressing so that participants (especially agents) can filter for messages relevant to them.
+
+### 8.6 Message formatting
+Code blocks, bold, links, lists. Slack's message formatting is used heavily by developers. Our system will have even more need for it — sharing code snippets, diffs, error output. Markdown is the obvious choice since agents already think in Markdown.
+
+### 8.7 Presence and status
+"Online", "away", "in a meeting." For our system: "working on auth.py", "waiting for review", "idle." Both humans and agents should be able to signal what they're doing and how available they are.
+
+### 8.8 Search
+Finding that message from two days ago where someone explained the caching strategy. Chat history is only useful as shared memory (section 6) if you can search it. Full-text search across messages, with filters for author, date, channel, and attachments.
+
+### 8.9 Link previews and unfurling
+When someone pastes a GitHub issue URL, Slack shows the title and status inline. Our system could do the same — agents are particularly good at fetching and summarizing linked content.
+
+### Design principle: protocol-first, UI-second
+
+The key insight is to design the **protocol** to support all of these features — reactions, threads, edits, pins, mentions, search — even if the initial CLI client can only express some of them crudely. A richer UI (web, native app) can then light up the full feature set without protocol changes. The CLI should be functional, not crippled. It just won't be as fluid as a graphical interface for some interactions — and that's fine.
+
+---
+
+## 9. Multi-Modal Inputs (Future)
+
+### 9.1 Sharing images
 Human A photographs a whiteboard sketch or a page from a book and drops it into chat. Agents can see and interpret it. The design discussion references visual artifacts directly.
 
-### 8.2 Screenshots of bugs
+### 9.2 Screenshots of bugs
 Human B screenshots a rendering bug and posts it. Agent B can see the screenshot and correlate it with recent CSS changes.
 
-### 8.3 Diagrams and architecture
+### 9.3 Diagrams and architecture
 Someone shares an architecture diagram. Agents reference it when making implementation decisions. "Per the diagram, Service A talks to Service B through the message queue, not directly."
 
 ---
