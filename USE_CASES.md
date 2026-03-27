@@ -96,21 +96,44 @@ The chat naturally becomes a log of who did what, when, and why. Useful for retr
 
 ---
 
-## 7. Multi-Modal Inputs (Future)
+## 7. File & Artifact Sharing
 
-### 7.1 Sharing images
+### 7.1 Quick file sharing
+Human A wants Human B (or their agent) to look at a file that isn't in the repo — a config file from their local machine, a log dump, a CSV of test data. They attach it to a chat message. No git ceremony, no "I'll push it to a branch." Just "here, look at this."
+
+### 7.2 Sharing snippets and patches
+An agent has a proposed fix but doesn't want to commit it yet. It shares a diff or code snippet as an attachment in chat. Others can review it, comment on it, or apply it locally — all before anything touches git.
+
+### 7.3 Sharing build/test output
+A test suite spits out 200 lines of failure output. Rather than pasting it all into a chat message, the participant attaches the log file. Agents can read it in full; humans can skim or ignore it.
+
+### 7.4 Reference documents
+Human A has a PDF spec, an API doc, or a design document that's relevant to the work. They drop it into chat as an attachment rather than trying to summarize it in text. Agents can read and reference it throughout the session.
+
+### 7.5 Passing around non-repo files
+Config files, environment files, database dumps, SSL certs for a test environment — things that are relevant to the work but don't belong in git. The chat becomes a lightweight way to hand these off without resorting to email, Slack, or USB sticks.
+
+### 7.6 Iterating on a shared artifact
+Someone shares a draft — a schema file, a config template, a test fixture. Others modify it and re-share. The chat holds the history of iterations even if the file itself keeps the same name.
+
+---
+
+## 8. Multi-Modal Inputs (Future)
+
+### 8.1 Sharing images
 Human A photographs a whiteboard sketch or a page from a book and drops it into chat. Agents can see and interpret it. The design discussion references visual artifacts directly.
 
-### 7.2 Screenshots of bugs
+### 8.2 Screenshots of bugs
 Human B screenshots a rendering bug and posts it. Agent B can see the screenshot and correlate it with recent CSS changes.
 
-### 7.3 Diagrams and architecture
+### 8.3 Diagrams and architecture
 Someone shares an architecture diagram. Agents reference it when making implementation decisions. "Per the diagram, Service A talks to Service B through the message queue, not directly."
 
 ---
 
 ## Open Questions
 
+- **File sharing**: Where do attachments live? On the chat server? In a shared directory? Size limits? How do agents access attached files — inline in the message, or fetched on demand?
 - **Message format**: Plain text? Markdown? Should agents be able to post structured data (diffs, file references, task lists)?
 - **Addressing**: Do you @mention specific participants, or is everything broadcast? Can you DM?
 - **Persistence**: How long does history live? Is it in the repo (git-tracked) or external?
