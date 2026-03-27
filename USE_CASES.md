@@ -6,6 +6,36 @@ Two (or more) humans, each with their own Claude Code instance, working on a sha
 
 ---
 
+## Core Design Principle: Virtualized Chat with Projection
+
+The chat system is **a single rich data model** with **multiple renderings**.
+
+The canonical representation of a conversation is complete and structured: messages with metadata, reactions, threads, attachments (including binary files, images, documents), presence, pins, edits — everything. Think of it as the data you'd need to power a full Telegram-style native app experience.
+
+**Different clients project this data into their medium:**
+
+| Capability | Native/Web App | CLI (human view) | Agent (data view) |
+|---|---|---|---|
+| Message text | Rich formatted | Markdown in terminal | Full structured data |
+| Reactions | Clickable emoji bar | `[+3 👍 ❤️]` inline | Full reaction list with authors |
+| Image attachment | Inline preview | `[image: photo.png 240KB]` | Can fetch and interpret the image |
+| Thread | Expandable panel | `chat thread #42` subview | Full thread contents |
+| File attachment | Download button | `[file: schema.sql 12KB]` | Can read file contents directly |
+| Typing indicator | "Alice is typing..." | Optional status line | Presence event in data stream |
+| Emoji reaction on msg | Click to add | `chat react #42 👍` | API call |
+| Edit message | Inline edit | `chat edit #42 "new text"` | API call |
+| Pin message | Click pin icon | `chat pin #42` | API call |
+
+**The critical insight**: agents are not limited by the terminal they live in. The agent sees and operates on the full data model. A Claude Code instance in a terminal can see all reactions on a message, read an attached image, navigate every thread — because it interacts with the data layer, not the rendering layer. The terminal constrains the *human's* experience, not the agent's.
+
+This means:
+- **One protocol, many clients.** The server API is the source of truth. CLI, web, native, and agent clients all consume the same data.
+- **Agents are first-class.** An agent can do everything a native app user can do — react, thread, edit, pin, attach files — via tool calls or CLI commands that map to the same underlying operations.
+- **The CLI is functional, not crippled.** Humans get a compact but complete view. Everything is accessible, just with typed commands instead of clicks.
+- **Richer UIs are additive.** Adding a web or native UI doesn't require protocol changes — it's a new projection of the same data. The interoperability comes for free.
+
+---
+
 ## 1. Coordination & Awareness
 
 ### 1.1 "What are you working on?"
