@@ -12,6 +12,8 @@ import { readFileSync } from "fs";
 import {
   ChatApiClient,
   loadPrivateKey,
+  loadPublicKey,
+  verifyPayload,
   type KeyObject,
 } from "@chat-mcp/shared";
 import { McpServer, type McpTool } from "./mcp-server.js";
@@ -239,6 +241,27 @@ const tools: McpTool[] = [
       return { content: [{ type: "text", text: formatted || "No members." }] };
     },
   },
+  {
+    name: "chat_send_attachment",
+    description: "Send a message with an attachment reference. The attachment must already be uploaded to the server.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        room_id: { type: "string", description: "Room ID to send to" },
+        text: { type: "string", description: "Message text (markdown)" },
+        attachment_ids: { type: "array", items: { type: "string" }, description: "Attachment IDs to include" },
+        thread_id: { type: "string", description: "Optional thread ID to reply to" },
+      },
+      required: ["room_id", "text", "attachment_ids"],
+    },
+    handler: async (args) => {
+      const msg = await client.sendMessage(args.room_id, args.text, {
+        thread_id: args.thread_id,
+        attachments: args.attachment_ids,
+      });
+      return { content: [{ type: "text", text: `Message sent with attachments: ${msg.id}` }] };
+    },
+  },
 ];
 
 // --- Server instructions (trust policy for Claude Code) ---
@@ -271,6 +294,56 @@ const server = new McpServer({
   instructions: INSTRUCTIONS,
 });
 
+// --- Local signature verification for incoming events ---
+// Cache of participant ID → public key (fetched on demand)
+const keyCache = new Map<string, KeyObject>();
+
+async function getPublicKey(participantId: string): Promise<KeyObject | null> {
+  if (keyCache.has(participantId)) return keyCache.get(participantId)!;
+  try {
+    const participant = await client.getParticipant(participantId);
+    if (participant.public_key_pem) {
+      const key = loadPublicKey(participant.public_key_pem);
+      keyCache.set(participantId, key);
+      return key;
+    }
+  } catch {
+    // Participant lookup failed — skip verification
+  }
+  return null;
+}
+
+function verifyEventSignature(event: any, payload: any): string | null {
+  // Only message.created events carry signatures
+  if (event.event_type !== "message.created") return null;
+  if (!payload.signature || payload.signature === "unsigned") return "unsigned";
+  // Signature present — we'll verify asynchronously and annotate
+  return "pending";
+}
+
+async function verifyMessageEvent(payload: any): Promise<"verified" | "unsigned" | "failed"> {
+  if (!payload.signature || payload.signature === "unsigned") return "unsigned";
+  const authorId = payload.author_id;
+  const pubKey = await getPublicKey(authorId);
+  if (!pubKey) return "unsigned"; // Can't verify without key
+
+  try {
+    const signedPayload = {
+      room_id: payload.room_id,
+      content: payload.content,
+      thread_id: payload.thread_id ?? null,
+      mentions: payload.mentions ?? [],
+      attachments: payload.attachments ?? [],
+      timestamp: payload.timestamp,
+      nonce: payload.nonce,
+    };
+    const valid = verifyPayload(pubKey, payload.signature, signedPayload);
+    return valid ? "verified" : "failed";
+  } catch {
+    return "failed";
+  }
+}
+
 // --- Connect to SSE streams for real-time events ---
 function connectToRooms() {
   if (ROOM_IDS.length === 0) {
@@ -288,19 +361,23 @@ function connectToRooms() {
 
   for (const roomId of ROOM_IDS) {
     const sseUrl = `${SERVER_URL}/rooms/${roomId}/stream`;
-    const sse = new SSEClient(sseUrl, headers, (event) => {
+    const sse = new SSEClient(sseUrl, headers, async (event) => {
       // Push event as a notification to Claude Code
       const payload = typeof event.payload === "string" ? JSON.parse(event.payload) : event.payload;
 
       // Format as a readable notification
       let text = "";
       switch (event.event_type) {
-        case "message.created":
+        case "message.created": {
           // Don't notify about our own messages
           if (payload.author_id === PARTICIPANT_ID) return;
-          text = `[chat:${roomId}] ${payload.author_id}: ${payload.content?.text || ""}`;
+          // Local signature verification
+          const sigStatus = await verifyMessageEvent(payload);
+          const sigTag = sigStatus === "verified" ? " ✓" : sigStatus === "failed" ? " ⚠UNVERIFIED" : "";
+          text = `[chat:${roomId}] ${payload.author_id}: ${payload.content?.text || ""}${sigTag}`;
           if (payload.thread_id) text += ` (thread: ${payload.thread_id})`;
           break;
+        }
         case "message.edited":
           text = `[chat:${roomId}] Message ${payload.message_id} edited`;
           break;

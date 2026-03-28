@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS messages (
   thread_id TEXT REFERENCES messages(id),
   signature TEXT NOT NULL,
   nonce TEXT NOT NULL,
+  timestamp TEXT,
   deleted INTEGER NOT NULL DEFAULT 0,
   edited_at TEXT,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))

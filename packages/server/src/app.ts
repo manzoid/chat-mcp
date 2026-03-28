@@ -233,6 +233,7 @@ export function createApp(db: Database, options: AppOptions = {}) {
       thread_id,
       signature,
       nonce,
+      timestamp: body.timestamp,
       mentions,
     });
     c.get("repos").events.create(roomId, "message.created", {
@@ -240,6 +241,10 @@ export function createApp(db: Database, options: AppOptions = {}) {
       author_id: pid,
       content,
       thread_id,
+      signature: msg.signature,
+      nonce: msg.nonce,
+      timestamp: msg.timestamp,
+      room_id: roomId,
     });
     return c.json(msg, 201);
   });

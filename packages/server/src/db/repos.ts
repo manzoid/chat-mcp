@@ -149,6 +149,7 @@ export interface DbMessage {
   thread_id: string | null;
   signature: string;
   nonce: string;
+  timestamp: string | null;
   deleted: number;
   edited_at: string | null;
   created_at: string;
@@ -165,13 +166,14 @@ export class MessageRepo {
     thread_id?: string;
     signature: string;
     nonce: string;
+    timestamp?: string;
     mentions?: string[];
   }): DbMessage {
     const id = randomUUID();
     this.db.run(
-      `INSERT INTO messages (id, room_id, author_id, content_format, content_text, thread_id, signature, nonce)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, params.room_id, params.author_id, params.content_format, params.content_text, params.thread_id ?? null, params.signature, params.nonce]
+      `INSERT INTO messages (id, room_id, author_id, content_format, content_text, thread_id, signature, nonce, timestamp)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, params.room_id, params.author_id, params.content_format, params.content_text, params.thread_id ?? null, params.signature, params.nonce, params.timestamp ?? null]
     );
     if (params.mentions?.length) {
       const stmt = this.db.prepare("INSERT INTO mentions (message_id, participant_id) VALUES (?, ?)");
