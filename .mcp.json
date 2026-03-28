@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "chat-mcp": {
+      "command": "bun",
+      "args": ["run", "packages/channel-plugin/src/index.ts"],
+      "env": {
+        "CHAT_SERVER_URL": "http://localhost:8080",
+        "CHAT_PARTICIPANT_ID": "",
+        "CHAT_PRIVATE_KEY_PATH": "",
+        "CHAT_SESSION_TOKEN": "",
+        "CHAT_ROOM_IDS": ""
+      }
+    }
+  }
+}

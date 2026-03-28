@@ -1,0 +1,10 @@
+{
+  "name": "@chat-mcp/channel-plugin",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@chat-mcp/shared": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.28.0"
+  }
+}

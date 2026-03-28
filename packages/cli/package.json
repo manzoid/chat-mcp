@@ -1,0 +1,13 @@
+{
+  "name": "@chat-mcp/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "bin": {
+    "chat": "src/index.ts"
+  },
+  "dependencies": {
+    "@chat-mcp/shared": "workspace:*",
+    "commander": "^12"
+  }
+}

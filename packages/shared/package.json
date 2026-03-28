@@ -1,0 +1,9 @@
+{
+  "name": "@chat-mcp/shared",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "canonicalize": "^2.0.0"
+  }
+}

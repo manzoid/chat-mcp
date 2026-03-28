@@ -1,0 +1,15 @@
+{
+  "name": "chat-mcp",
+  "type": "module",
+  "private": true,
+  "workspaces": [
+    "packages/shared",
+    "packages/server",
+    "packages/cli",
+    "packages/channel-plugin"
+  ],
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5"
+  }
+}

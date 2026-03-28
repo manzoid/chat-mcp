@@ -1,0 +1,74 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "chat-mcp",
+      "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^5",
+      },
+    },
+    "packages/channel-plugin": {
+      "name": "@chat-mcp/channel-plugin",
+      "version": "0.1.0",
+      "bin": {
+        "chat-mcp-channel": "src/index.ts",
+      },
+      "dependencies": {
+        "@chat-mcp/shared": "workspace:*",
+      },
+    },
+    "packages/cli": {
+      "name": "@chat-mcp/cli",
+      "version": "0.1.0",
+      "bin": {
+        "chat": "src/index.ts",
+      },
+      "dependencies": {
+        "@chat-mcp/shared": "workspace:*",
+        "commander": "^12",
+      },
+    },
+    "packages/server": {
+      "name": "@chat-mcp/server",
+      "version": "0.1.0",
+      "dependencies": {
+        "@chat-mcp/shared": "workspace:*",
+        "hono": "^4",
+      },
+    },
+    "packages/shared": {
+      "name": "@chat-mcp/shared",
+      "version": "0.1.0",
+      "dependencies": {
+        "canonicalize": "^2.0.0",
+      },
+    },
+  },
+  "packages": {
+    "@chat-mcp/channel-plugin": ["@chat-mcp/channel-plugin@workspace:packages/channel-plugin"],
+
+    "@chat-mcp/cli": ["@chat-mcp/cli@workspace:packages/cli"],
+
+    "@chat-mcp/server": ["@chat-mcp/server@workspace:packages/server"],
+
+    "@chat-mcp/shared": ["@chat-mcp/shared@workspace:packages/shared"],
+
+    "@types/bun": ["@types/bun@1.3.11", "", { "dependencies": { "bun-types": "1.3.11" } }, "sha512-5vPne5QvtpjGpsGYXiFyycfpDF2ECyPcTSsFBMa0fraoxiQyMJ3SmuQIGhzPg2WJuWxVBoxWJ2kClYTcw/4fAg=="],
+
+    "@types/node": ["@types/node@25.5.0", "", { "dependencies": { "undici-types": "~7.18.0" } }, "sha512-jp2P3tQMSxWugkCUKLRPVUpGaL5MVFwF8RDuSRztfwgN1wmqJeMSbKlnEtQqU8UrhTmzEmZdu2I6v2dpp7XIxw=="],
+
+    "bun-types": ["bun-types@1.3.11", "", { "dependencies": { "@types/node": "*" } }, "sha512-1KGPpoxQWl9f6wcZh57LvrPIInQMn2TQ7jsgxqpRzg+l0QPOFvJVH7HmvHo/AiPgwXy+/Thf6Ov3EdVn1vOabg=="],
+
+    "canonicalize": ["canonicalize@2.1.0", "", { "bin": { "canonicalize": "bin/canonicalize.js" } }, "sha512-F705O3xrsUtgt98j7leetNhTWPe+5S72rlL5O4jA1pKqBVQ/dT1O1D6PFxmSXvc0SUOinWS57DKx0I3CHrXJHQ=="],
+
+    "commander": ["commander@12.1.0", "", {}, "sha512-Vw8qHK3bZM9y/P10u3Vib8o/DdkvA2OtPtZvD871QKjy74Wj1WSKFILMPRPSdUSx5RFK1arlJzEtA4PkFgnbuA=="],
+
+    "hono": ["hono@4.12.9", "", {}, "sha512-wy3T8Zm2bsEvxKZM5w21VdHDDcwVS1yUFFY6i8UobSsKfFceT7TOwhbhfKsDyx7tYQlmRM5FLpIuYvNFyjctiA=="],
+
+    "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
+
+    "undici-types": ["undici-types@7.18.2", "", {}, "sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w=="],
+  }
+}
