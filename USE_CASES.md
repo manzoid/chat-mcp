@@ -1,12 +1,12 @@
-# Multi-Agent Collaborative Workspace — Use Cases
+# Multi-agent collaborative workspace — use cases
 
-## The Setup
+## The setup
 
 Two (or more) humans, each with their own Claude Code instance, working on a shared repo. A chat system connects all participants — humans and agents alike — in real-time conversation anchored to the work.
 
 ---
 
-## Core Design Principle: Virtualized Chat with Projection
+## Core design principle: virtualized chat with projection
 
 The chat system is **a single rich data model** with **multiple renderings**.
 
@@ -14,17 +14,18 @@ The canonical representation of a conversation is complete and structured: messa
 
 **Different clients project this data into their medium:**
 
-| Capability | Native/Web App | CLI (human view) | Agent (data view) |
+| Capability | Native/Web app | CLI (human view) | Agent (data view) |
 |---|---|---|---|
 | Message text | Rich formatted | Markdown in terminal | Full structured data |
-| Reactions | Clickable emoji bar | `[+3 👍 ❤️]` inline | Full reaction list with authors |
+| Reactions | Clickable emoji bar | `[+3 thumbsup heart]` inline | Full reaction list with authors |
 | Image attachment | Inline preview | `[image: photo.png 240KB]` | Can fetch and interpret the image |
 | Thread | Expandable panel | `chat thread #42` subview | Full thread contents |
 | File attachment | Download button | `[file: schema.sql 12KB]` | Can read file contents directly |
 | Typing indicator | "Alice is typing..." | Optional status line | Presence event in data stream |
-| Emoji reaction on msg | Click to add | `chat react #42 👍` | API call |
+| Emoji reaction on msg | Click to add | `chat react #42 thumbsup` | API call |
 | Edit message | Inline edit | `chat edit #42 "new text"` | API call |
 | Pin message | Click pin icon | `chat pin #42` | API call |
+| Signature status | Lock icon / verified badge | `[verified]` or `[UNVERIFIED]` | `sig_valid` + `sig_verified_locally` fields |
 
 **The critical insight**: agents are not limited by the terminal they live in. The agent sees and operates on the full data model. A Claude Code instance in a terminal can see all reactions on a message, read an attached image, navigate every thread — because it interacts with the data layer, not the rendering layer. The terminal constrains the *human's* experience, not the agent's.
 
@@ -36,7 +37,7 @@ This means:
 
 ---
 
-## 1. Coordination & Awareness
+## 1. Coordination & awareness
 
 ### 1.1 "What are you working on?"
 Human A asks the group what's in progress. Human B's agent responds with a summary of their current branch, recent commits, and open tasks. Avoids merge conflicts and duplicated effort before they happen.
@@ -52,7 +53,7 @@ The group discusses a feature that needs frontend, backend, and test work. They 
 
 ---
 
-## 2. Knowledge Sharing & Questions
+## 2. Knowledge sharing & questions
 
 ### 2.1 "How does this module work?"
 Human B is unfamiliar with the payment processing code. They ask in chat. Human A's agent (who has been working in that area) explains the architecture, key files, and gotchas. Faster than reading the code cold.
@@ -68,7 +69,7 @@ Human A drops a link to a blog post or API docs into the chat. Agents can fetch 
 
 ---
 
-## 3. Agent-to-Agent Collaboration
+## 3. Agent-to-agent collaboration
 
 ### 3.1 Interface negotiation
 Agent A is building a REST API, Agent B is building the client. They discuss and agree on the request/response format in chat, then each implements their side. The humans supervise but don't have to manually coordinate the contract.
@@ -84,7 +85,7 @@ Agent A proposes an approach. Agent B stress-tests it: "What about edge case X?"
 
 ---
 
-## 4. Human-Agent Interaction Across Pairs
+## 4. Human-agent interaction across pairs
 
 ### 4.1 Asking the other agent directly
 Human A has a question about something Human B's agent built. They ask it directly in chat rather than waiting for Human B to relay. The agent answers because it has the full context.
@@ -97,7 +98,7 @@ Human A finishes for the day. They post a summary of where things stand and what
 
 ---
 
-## 5. Proactive Agent Behavior
+## 5. Proactive agent behavior
 
 ### 5.1 Watching for CI failures
 An agent notices (via polling or notification) that the build broke. It posts to chat: "CI failed on `main` — looks like a missing import in `utils.py`. Want me to fix it?"
@@ -113,7 +114,7 @@ Someone pushes to main. An agent notices, pulls the changes, and flags anything 
 
 ---
 
-## 6. The Chat as Shared Memory
+## 6. The chat as shared memory
 
 ### 6.1 Decisions log
 Important decisions are made in chat and stay there. When someone later asks "why did we use Redis here?", the answer is in the history, not lost in a Slack thread or someone's head.
@@ -126,7 +127,7 @@ The chat naturally becomes a log of who did what, when, and why. Useful for retr
 
 ---
 
-## 7. File & Artifact Sharing
+## 7. File & artifact sharing
 
 ### 7.1 Quick file sharing
 Human A wants Human B (or their agent) to look at a file that isn't in the repo — a config file from their local machine, a log dump, a CSV of test data. They attach it to a chat message. No git ceremony, no "I'll push it to a branch." Just "here, look at this."
@@ -148,24 +149,24 @@ Someone shares a draft — a schema file, a config template, a test fixture. Oth
 
 ---
 
-## 8. Lessons from Business Chat Apps
+## 8. Lessons from business chat apps
 
 The features that Slack, Discord, and Teams have converged on aren't accidents — they represent hard-won answers to real collaboration problems. Our system should learn from them, even though our CLI-first context changes how some of these features manifest.
 
 ### 8.1 Emoji reactions
-In Slack, reactions are lightweight voting, acknowledgment ("got it"), and steering ("thumbs down on that approach") — all without generating a new message that everyone has to read. Agents could use these too: a quick +1 to signal agreement without a verbose response. **CLI challenge**: you can't click on a past message. Possible approaches: reference by message ID (`react :thumbsup: #42`), react to the last message by default, or accept that this feature mostly shines in richer UIs.
+In Slack, reactions are lightweight voting, acknowledgment ("got it"), and steering ("thumbs down on that approach") — all without generating a new message that everyone has to read. Agents could use these too: a quick +1 to signal agreement without a verbose response. **CLI approach**: reference by message ID (`chat react 42 thumbsup`), react to the last message by default.
 
 ### 8.2 Threading
-Not every response needs to be in the main channel. Threading lets a side discussion happen without derailing the main flow. Critical when four participants are active — without threading, conversations become an unreadable interleave. **CLI challenge**: displaying nested threads in a terminal is awkward. Possible approach: threads are a first-class concept in the protocol, and the CLI shows them with indentation or as a separate view (`chat thread #42`).
+Not every response needs to be in the main channel. Threading lets a side discussion happen without derailing the main flow. Critical when four participants are active — without threading, conversations become an unreadable interleave. **CLI approach**: threads are a first-class concept in the protocol, and the CLI shows them with indentation or as a separate view (`chat thread 42`).
 
 ### 8.3 Editing messages
-People (and agents) say things wrong, make typos, or want to refine what they said. In Slack you just edit. In a terminal you've already hit enter. The protocol should support edits even if the CLI makes it a deliberate action (`chat edit #42 "corrected text"`). The history should show both versions.
+People (and agents) say things wrong, make typos, or want to refine what they said. In Slack you just edit. In a terminal you've already hit enter. The protocol supports edits as a deliberate action (`chat edit 42 "corrected text"`). The history shows both versions, each with its own signature.
 
 ### 8.4 Pinning and bookmarking
-Important messages — decisions, links, specs — get lost in scroll. Pinning lifts them out. For our system, this is especially useful for decisions (use case 6.1). A pinned message is an agreement the group made. **CLI approach**: `chat pin #42`, `chat pins` to list them.
+Important messages — decisions, links, specs — get lost in scroll. Pinning lifts them out. For our system, this is especially useful for decisions (use case 6.1). A pinned message is an agreement the group made. **CLI approach**: `chat pin 42`, `chat pins` to list them.
 
 ### 8.5 @mentions and notifications
-Addressing a specific person or agent in a busy chat. Crucial for getting attention in a four-way conversation. The protocol must support addressing so that participants (especially agents) can filter for messages relevant to them.
+Addressing a specific person or agent in a busy chat. Crucial for getting attention in a four-way conversation. The server resolves `@display_name` to participant IDs, enabling targeted notifications. Agents filter for messages that mention them or their human.
 
 ### 8.6 Message formatting
 Code blocks, bold, links, lists. Slack's message formatting is used heavily by developers. Our system will have even more need for it — sharing code snippets, diffs, error output. Markdown is the obvious choice since agents already think in Markdown.
@@ -174,10 +175,10 @@ Code blocks, bold, links, lists. Slack's message formatting is used heavily by d
 "Online", "away", "in a meeting." For our system: "working on auth.py", "waiting for review", "idle." Both humans and agents should be able to signal what they're doing and how available they are.
 
 ### 8.8 Search
-Finding that message from two days ago where someone explained the caching strategy. Chat history is only useful as shared memory (section 6) if you can search it. Full-text search across messages, with filters for author, date, channel, and attachments.
+Finding that message from two days ago where someone explained the caching strategy. Chat history is only useful as shared memory (section 6) if you can search it. Full-text search across messages, with filters for author, date, channel, and attachments (via SQLite FTS5).
 
 ### 8.9 Link previews and unfurling
-When someone pastes a GitHub issue URL, Slack shows the title and status inline. Our system could do the same — agents are particularly good at fetching and summarizing linked content.
+When someone pastes a GitHub issue URL, Slack shows the title and status inline. Our system could do the same — agents are particularly good at fetching and summarizing linked content. This is a presentation-layer concern, not a protocol concern — agents and richer UI clients can unfurl links without protocol changes.
 
 ### Design principle: protocol-first, UI-second
 
@@ -185,7 +186,7 @@ The key insight is to design the **protocol** to support all of these features �
 
 ---
 
-## 9. Multi-Modal Inputs (Future)
+## 9. Multi-modal inputs (future)
 
 ### 9.1 Sharing images
 Human A photographs a whiteboard sketch or a page from a book and drops it into chat. Agents can see and interpret it. The design discussion references visual artifacts directly.
@@ -195,16 +196,3 @@ Human B screenshots a rendering bug and posts it. Agent B can see the screenshot
 
 ### 9.3 Diagrams and architecture
 Someone shares an architecture diagram. Agents reference it when making implementation decisions. "Per the diagram, Service A talks to Service B through the message queue, not directly."
-
----
-
-## Open Questions
-
-- **File sharing**: Where do attachments live? On the chat server? In a shared directory? Size limits? How do agents access attached files — inline in the message, or fetched on demand?
-- **Message format**: Plain text? Markdown? Should agents be able to post structured data (diffs, file references, task lists)?
-- **Addressing**: Do you @mention specific participants, or is everything broadcast? Can you DM?
-- **Persistence**: How long does history live? Is it in the repo (git-tracked) or external?
-- **Identity**: How do participants authenticate? How does an agent prove it speaks for its human?
-- **Rooms/channels**: One big conversation, or topic-based channels?
-- **Rate limiting**: How do we prevent agents from flooding the chat?
-- **Conflict with solo work**: How does this coexist with normal Claude Code usage? Is the collaborative chat always on, or something you enter/leave?

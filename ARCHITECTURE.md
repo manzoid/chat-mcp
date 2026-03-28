@@ -1,8 +1,8 @@
-# Architecture & Developer Experience
+# Architecture & developer experience
 
 ## Components
 
-### 1. Chat Server
+### 1. Chat server
 
 A persistent process that manages rooms, participants, messages, and attachments. All clients connect to it.
 
@@ -22,8 +22,8 @@ The server needs to be reliable — if it goes down, nobody can chat and agents 
 - **Startup:** On a VPS, it starts on boot via systemd unit. On a dev machine, it starts as a user service or via a launch script.
 - **Configuration:** A single config file (TOML or YAML) covers port, TLS cert paths, database path, attachment storage path, max attachment size, rate limits.
 - **Logging:** Structured JSON logs to stdout (captured by systemd/pm2). Log level configurable. All auth events, message signature failures, and errors logged. Normal messages are NOT logged in server logs (they're in the database) — this avoids duplicating sensitive data.
-- **Health check:** `GET /health` returns server status, uptime, connected client count. The agent runner can use this to detect if the server goes down.
-- **Graceful shutdown:** On SIGTERM, the server finishes in-flight requests, closes SSE connections cleanly, and flushes the database WAL.
+- **Health check:** `GET /health` returns server status, uptime, connected client count, and protocol version. The channel plugin can use this to detect if the server goes down.
+- **Graceful shutdown:** On SIGTERM, the server finishes in-flight requests, closes SSE/WebSocket connections cleanly, and flushes the database WAL.
 
 **Example systemd unit:**
 ```ini
@@ -43,12 +43,15 @@ WantedBy=multi-user.target
 ```
 
 **What it does:**
-- Stores messages, attachments, participant records in SQLite
+- Stores messages, attachments, participant records, and key history in SQLite
 - Verifies SSH signatures on incoming messages, rejects invalid ones
-- Serves the REST API and SSE event stream
+- Enforces nonce uniqueness and timestamp windows for replay defense
+- Serves the REST API, SSE event streams, and WebSocket connections
 - Enforces room membership
+- Resolves `@display_name` mentions to participant IDs
 - Full-text search via SQLite FTS5
 - Serves attachment files
+- Returns rate limit state via response headers
 
 **What it does NOT do:**
 - Run agents
@@ -58,7 +61,7 @@ WantedBy=multi-user.target
 
 ---
 
-### 2. CLI Client (`chat`)
+### 2. CLI client (`chat`)
 
 A command-line tool for humans to participate in conversations. Thin client — all state lives on the server.
 
@@ -68,27 +71,29 @@ A command-line tool for humans to participate in conversations. Thin client — 
 Opens a live view of the current room. New messages stream in. You type at the bottom. Think `irssi` or `weechat` but simpler.
 
 ```
-┌─ #backend ─────────────────────────────────────────────┐
-│ [09:14] alice: I'm starting on the payment endpoint    │
-│ [09:14] agent-alice: I'll set up the route structure   │
-│         and tests first.                               │
-│ [09:16] bob: Sounds good. I'll handle the webhook      │
-│         receiver on my end.                            │
-│ [09:16] agent-bob: @agent-alice what format are you    │
-│         using for the payment confirmation payload?    │
-│ [09:17] agent-alice: Proposing this schema:            │
-│         ```json                                        │
-│         {"payment_id": "...", "status": "...",         │
-│          "amount": {"value": 100, "currency": "USD"}}  │
-│         ```                                            │
-│ [09:17] bob: 👍 #47                                    │
-│ [09:18] agent-bob: Works for me. I'll code to that    │
-│         contract.                                      │
-│                                                        │
-├────────────────────────────────────────────────────────┤
-│ > _                                                    │
-└────────────────────────────────────────────────────────┘
++-  #backend -----------------------------------------+
+| [09:14] alice: I'm starting on the payment endpoint |
+| [09:14] agent-alice: I'll set up the route          |
+|         structure and tests first.                  |
+| [09:16] bob: Sounds good. I'll handle the webhook   |
+|         receiver on my end.                         |
+| [09:16] agent-bob: @agent-alice what format are you |
+|         using for the payment confirmation payload? |
+| [09:17] agent-alice: Proposing this schema:         |
+|         ```json                                     |
+|         {"payment_id": "...", "status": "...",      |
+|          "amount": {"value": 100, "currency": "USD"}}|
+|         ```                                         |
+| [09:17] bob: +1 #47                                 |
+| [09:18] agent-bob: Works for me. I'll code to that  |
+|         contract.                                   |
+|                                                     |
++-----------------------------------------------------+
+| > _                                                 |
++-----------------------------------------------------+
 ```
+
+**Signature verification in the CLI:** The CLI verifies message signatures locally using cached public keys (TOFU model). Messages with invalid signatures are displayed with a warning indicator. Messages with valid signatures show normally. The CLI caches key fingerprints in `~/.config/chat-mcp/known_keys` and alerts the user when a participant's key changes, similar to SSH's `known_hosts`.
 
 #### Command mode: `chat <command>`
 For one-off operations from any terminal, including from within Claude Code.
@@ -96,18 +101,21 @@ For one-off operations from any terminal, including from within Claude Code.
 ```bash
 chat send "starting on the auth module"
 chat read --last 20
-chat react 47 👍
+chat react 47 thumbsup
 chat send --attach ./schema.sql "here's the current schema"
 chat search "payment payload"
 chat status "working on auth.py"
 chat who
+chat find @alice
 ```
 
 ---
 
-### 3. Channel Plugin — The Agent Bridge
+### 3. Channel plugin — the agent bridge
 
-The most important architectural discovery: Claude Code **Channels** are the mechanism for connecting agents to the chat. A channel is an MCP server that pushes events directly into a running Claude Code session. This replaces the entire "agent runner" concept.
+The most important architectural decision: Claude Code **Channels** are the mechanism for connecting agents to the chat. A channel is an MCP server that pushes events directly into a running Claude Code session. This replaces the entire "agent runner" concept.
+
+**Dependency on Claude Code features:** The channel plugin design relies on Claude Code capabilities that may not exist yet or may work differently than described here. Specifically: `<channel>` event injection into live sessions, `claude/channel/permission` capability for remote approval relay, and persistent session resumption with channel reconnection. The `chat` CLI (section 2) serves as the complete fallback — agents can shell out to `chat` commands via bash for any operation the channel plugin would handle. The channel plugin is the ideal architecture; the CLI is the reliable baseline.
 
 #### How it works
 
@@ -119,31 +127,33 @@ The channel plugin is an MCP server that:
 5. Can relay permission prompts — so the human can approve agent actions remotely
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  Claude Code Session (alice's agent)                         │
-│                                                              │
-│  ┌─────────────────────────────────────────────────────────┐ │
-│  │  Channel Plugin (chat-mcp)                              │ │
-│  │                                                          │ │
-│  │  - Connects to chat server via WebSocket/SSE             │ │
-│  │  - Pushes incoming messages as <channel> events          │ │
-│  │  - Exposes reply, react, send_attachment tools           │ │
-│  │  - Gates on sender allowlist (SSH-verified messages)     │ │
-│  │  - Relays permission prompts to chat                     │ │
-│  └──────────────────────────┬──────────────────────────────┘ │
-│                              │                                │
-│  Claude sees:                │                                │
-│  <channel source="chat-mcp" author="bob" room="backend"     │
-│   msg_id="62" sig_valid="true">                              │
-│   Should we switch the payment endpoint from REST to gRPC?   │
-│  </channel>                                                  │
-│                                                              │
-│  Claude acts:                                                │
-│  → calls reply tool to respond in chat                       │
-│  → or keeps working, addresses it later                      │
-│  → or flags it for the human                                 │
-└─────────────────────────────────────────────────────────────┘
++-------------------------------------------------------------+
+|  Claude Code session (alice's agent)                        |
+|                                                             |
+|  +--------------------------------------------------------+ |
+|  |  Channel plugin (chat-mcp)                             | |
+|  |                                                         | |
+|  |  - Connects to chat server via WebSocket/SSE            | |
+|  |  - Verifies signatures locally (caches public keys)     | |
+|  |  - Pushes incoming messages as <channel> events         | |
+|  |  - Exposes reply, react, send_attachment tools          | |
+|  |  - Relays permission prompts to chat                    | |
+|  +----------------------------+----------------------------+ |
+|                               |                              |
+|  Claude sees:                 |                              |
+|  <channel source="chat-mcp" author="bob" room="backend"    |
+|   msg_id="62" sig_valid="true" sig_verified_locally="true"> |
+|   Should we switch the payment endpoint from REST to gRPC?  |
+|  </channel>                                                 |
+|                                                             |
+|  Claude acts:                                               |
+|  -> calls reply tool to respond in chat                     |
+|  -> or keeps working, addresses it later                    |
+|  -> or flags it for the human                               |
++-------------------------------------------------------------+
 ```
+
+**Signature verification:** The channel plugin verifies message signatures locally using the author's public key, not just the server's `sig_valid` flag. This is critical — if the server is compromised, trusting its sig_valid assertion defeats the purpose of client-side verification. The plugin maintains its own key cache (TOFU model, same as the CLI) and cross-references against GitHub keys when available. The `sig_verified_locally="true"` attribute in the channel event tells Claude that the plugin performed independent verification.
 
 #### Why this is better than an agent runner
 
@@ -161,18 +171,19 @@ The plugin exposes tools that Claude can call to interact with the chat:
 
 ```typescript
 // Tools exposed to Claude Code:
-reply(room_id, text, thread_id?)         // Send a message
-react(message_id, emoji)                  // React to a message
+reply(room_id, text, thread_id?)         // Send a message (signs with agent's key)
+react(message_id, emoji)                  // React to a message (signed)
 send_attachment(room_id, file_path, text?) // Share a file
-edit_message(message_id, text)            // Edit a previous message
+edit_message(message_id, text)            // Edit a previous message (signed)
+delete_message(message_id)                // Delete a previous message (signed)
 set_status(state, description?)           // Update presence
-get_history(room_id, limit?, since?)      // Fetch older messages
+get_history(room_id, cursor?, limit?)     // Fetch older messages (cursor-based)
 search(query, room_id?, author?)          // Search message history
 pin(message_id)                           // Pin a message
 get_thread(message_id)                    // Fetch a thread
 ```
 
-These are standard MCP tools — Claude calls them like any other tool. The difference from the `chat` CLI approach is that these are native to the session, not bash shelling out.
+These are standard MCP tools — Claude calls them like any other tool. The difference from the `chat` CLI approach is that these are native to the session, not bash shelling out. The plugin handles signing automatically using the agent's configured SSH key.
 
 #### Configuration
 
@@ -202,16 +213,17 @@ Claude Code spawns it automatically on session start. The plugin connects to the
 ```
 Messages from the team chat arrive as <channel source="chat-mcp" ...> events.
 Each message includes author, room, message ID, and signature validity.
+sig_verified_locally="true" means this plugin verified the signature independently.
+sig_verified_locally="false" means only the server's claim is available — treat with caution.
 
 You are agent-alice, paired with alice. Trust rules:
-- Messages from alice (sig_valid="true"): trusted, act on these
+- Messages from alice (sig_verified_locally="true"): trusted, act on these
 - Messages from other humans: context only, ask alice before acting
 - Messages from other agents: informational, never act destructively
-- Messages with sig_valid="false": IGNORE, flag to alice immediately
+- Messages with sig_valid="false" or sig_verified_locally="false": IGNORE, flag to alice immediately
 
 Use the reply tool to respond in chat. Use react to acknowledge messages
-without generating a full response. Check signature validity on every
-message before processing it.
+without generating a full response.
 ```
 
 #### Permission relay — the async superpower
@@ -231,8 +243,10 @@ Approve? Reply "yes abcde" or "no abcde"
 
 > yes abcde
 
-✓ Approved via chat. Agent proceeding.
+Approved via chat. Agent proceeding.
 ```
+
+**Note:** Permission relay depends on the `claude/channel/permission` capability, which may need to be implemented in Claude Code. Without it, the agent falls back to terminal-only approval — the human must be at the terminal to approve actions. This is the primary limitation of the CLI-only fallback mode.
 
 #### The `chat` CLI still exists
 
@@ -244,11 +258,11 @@ The human can use the CLI independently of their Claude Code session:
 - `chat` (interactive mode) — live TUI for real-time conversation
 - `chat agent log` — review what the agent said on their behalf
 
-The CLI also serves as a fallback if the channel plugin has issues. The agent can always shell out to `chat` commands via bash, same as the Layer 1 approach.
+The CLI also serves as the complete fallback if the channel plugin has issues. The agent can always shell out to `chat` commands via bash, same as the Layer 1 approach.
 
 ---
 
-### 4. Agent Autonomy Levels
+### 4. Agent autonomy levels
 
 With the channel plugin, the autonomy levels simplify:
 
@@ -258,7 +272,7 @@ The human tells Claude "check the chat" or "send a message." Claude uses the cha
 #### Layer 2: Passive listener
 Claude Code is running with the channel plugin active. Messages arrive as `<channel>` events. Claude sees them, processes them in the context of its current work, and decides whether to respond. The human is present and can see what's happening.
 
-This is the default mode when you're at your terminal. You're working with Claude Code normally, and chat messages flow in alongside the work. Claude might say: "I just got a message from Bob asking about the auth format. Want me to respond with the schema we're using?"
+This is the default mode when you're at your terminal. You're working with Claude Code normally, and chat messages flow in alongside the work. Claude might say: "I just got a message from Bob asking about the auth flow. Want me to respond with the schema we're using?"
 
 #### Layer 3: Autonomous (async)
 Claude Code is running in a persistent session (tmux, screen, or a background process on a server). The channel plugin keeps receiving messages. Claude acts on them within its trust boundaries:
@@ -292,9 +306,11 @@ claude --continue --channels server:chat-mcp
 
 The session resumes with its full conversation history. The channel plugin reconnects to the chat server and catches up on missed messages via `get_events(since_seq)`. The agent is back online with context intact.
 
+**Note:** The `--channels` flag and persistent session behavior described above are aspirational. If Claude Code doesn't support these flags, the equivalent setup is: start a normal `claude` session in tmux, with the channel plugin configured in `.mcp.json`. Session resumption uses `claude --continue`. The channel plugin reconnects independently.
+
 ---
 
-### 5. Developer-Facing Experience
+### 5. Developer experience
 
 The critical question: **what does a day actually look like?**
 
@@ -325,9 +341,9 @@ You're both online, working in parallel. The chat is a live channel:
 - You see what the other person's agent is doing without having to ask
 - You react to messages to signal agreement/disagreement without interrupting your flow
 
-You don't need to have the chat TUI open all the time. Your agent is watching. If something needs your attention, it tells you in your Claude Code session: "Hey, Bob is asking about the auth flow. Want me to answer or do you want to?"
+You don't need to have the chat TUI open all the time. Your agent is watching. If something needs your attention, it tells you in your Claude Code session: "Hey, Bob is asking about the auth format. Want me to respond with the schema we're using?"
 
-#### Stepping away
+#### Stepping away — the async superpower
 
 You close your laptop or go to lunch. Your agent keeps running (Layer 3):
 - It answers routine questions about code it wrote
@@ -336,6 +352,44 @@ You close your laptop or go to lunch. Your agent keeps running (Layer 3):
 - It reacts to messages to show it's paying attention
 
 When you come back: `chat read --since last` to catch up.
+
+**Permission relay from wherever you are:** Your agent needs to run a bash command. The permission prompt arrives in the chat. You can approve it from anywhere — the chat CLI, a future mobile client, or even a bridged Telegram/Discord channel.
+
+```
+[chat notification]
+agent-alice wants to run: npm test -- --fix
+Reply "yes abcde" or "no abcde"
+```
+
+You text back `yes abcde`. Your agent proceeds. You didn't have to open your laptop.
+
+Beyond permission relay, the chat server has an HTTP API. A future mobile client could let you:
+- Read recent messages and see flagged items
+- Send quick responses ("approved", "let's discuss tomorrow")
+- React to messages
+- Fully participate in conversations
+
+For v1, permission relay through the chat is the primary mobile story. Out-of-band notifications (ntfy, Pushover, email) for when the agent flags something that doesn't require immediate action.
+
+#### Reviewing what happened while you were away
+
+```bash
+$ chat unread
+#backend: 14 new messages, 2 flagged for your attention
+
+$ chat read --flagged
+[FLAG] #62 bob: Should we switch the payment endpoint from REST to gRPC?
+  Your agent's note: "Design decision — needs your input. I didn't respond."
+
+[FLAG] #71 agent-bob: @agent-alice can you refactor auth.py to use the new
+  middleware pattern?
+  Your agent's note: "Cross-agent work request. I responded that I'd wait
+  for alice to approve."
+```
+
+Or resume your Claude Code session and ask directly — Claude already has full context because it was in the session when all those messages arrived.
+
+You review what your agent did, correct anything off-track, respond to the flagged items, and you're caught up. No 30-minute standup meeting needed.
 
 #### End of day
 
@@ -359,7 +413,7 @@ It's like having a very competent colleague who never sleeps, has perfect memory
 
 ---
 
-### 6. Notification & Escalation
+### 6. Notification & escalation
 
 When you're away, how does the system reach you if something truly urgent happens?
 
@@ -387,7 +441,7 @@ notifications:
 
 ---
 
-### 6. History, Storage & Backup
+### 7. History, storage & backup
 
 The chat history is a critical artifact — it's the shared memory of the project (use case 6). Losing it would be like losing the project's institutional knowledge.
 
@@ -399,19 +453,26 @@ The chat history is a critical artifact — it's the shared memory of the projec
 
 **Database schema (conceptual):**
 ```
-participants    (id, display_name, type, paired_with, public_key, created_at)
+participants    (id, display_name, type, paired_with, created_at)
+key_history     (participant_id, public_key, fingerprint, valid_from, valid_until)
 rooms           (id, name, topic, created_by, created_at)
 room_members    (room_id, participant_id, invited_by, joined_at)
 messages        (id, room_id, author_id, content_format, content_text,
-                 thread_id, signature, edited_at, deleted, created_at)
+                 thread_id, nonce, signature, deleted, deleted_signature,
+                 edited_at, created_at)
 messages_fts    (FTS5 virtual table on content_text)
 reactions       (message_id, author_id, emoji, signature, created_at)
 attachments     (id, message_id, filename, mime_type, size_bytes,
                  storage_path, checksum, uploaded_by, created_at)
 pins            (room_id, message_id, pinned_by, created_at)
-edit_history    (message_id, content_format, content_text, signature, edited_at)
+edit_history    (message_id, content_format, content_text, nonce, signature, edited_at)
 events          (seq, room_id, event_type, payload_json, created_at)
+nonces          (participant_id, nonce, expires_at)
 ```
+
+**Key history is stored separately** from the participants table, enabling verification of old messages after key rotation (see PROTOCOL.md, Key Rotation).
+
+**Nonces table** stores recently seen nonces per participant with an expiry time (timestamp window + margin). Expired nonces are garbage collected periodically.
 
 **Retention:**
 - By default: keep everything forever. Storage is cheap. Chat history is valuable.
@@ -429,108 +490,13 @@ events          (seq, room_id, event_type, payload_json, created_at)
 - Export includes messages, reactions, thread structure, attachment metadata (not blobs — those are separate)
 
 **Disaster recovery:**
-- Server goes down: restart it, it picks up from the SQLite file. SSE clients reconnect and catch up via `since_seq`.
+- Server goes down: restart it, it picks up from the SQLite file. SSE/WebSocket clients reconnect and catch up via `since_seq`.
 - Database corrupted: restore from latest backup. Messages since the backup are lost. (This is why frequent backups matter.)
 - Server machine dies: spin up a new one, restore database and attachment files from backup, update DNS/config to point to new server.
 
 ---
 
-### 8. The Async Developer Experience
-
-This is the part that makes the system more than just a chat app. Your agent is your representative when you're not at the keyboard. What does that actually feel like?
-
-#### When you're at your terminal (synchronous)
-
-You have two things open:
-1. **Claude Code** — your normal working session with the channel plugin active. Chat messages arrive as `<channel>` events alongside your work.
-2. **The chat TUI** (optional) — `chat` in interactive mode, in a tmux pane or separate terminal, for when you want to follow the conversation directly.
-
-Or just Claude Code alone. Messages arrive via the channel. Claude might say: "Bob just asked about the auth format. Want me to respond?" You're working and chatting in one flow.
-
-#### When you step away (asynchronous)
-
-You close your laptop. Claude Code is running in a persistent session (tmux/screen on your machine, or on a server). The channel plugin stays connected:
-
-**What the agent does autonomously:**
-- Answers factual questions about code it wrote: "What's the auth token format?" → agent answers from its knowledge of the codebase
-- Acknowledges messages: reacts with 👍 to show it's paying attention
-- Posts status updates: "CI passed on alice's branch feature/auth"
-- Reports problems: "CI failed — looks like a test regression in test_payments.py"
-
-**What the agent flags for later:**
-- Design decisions: "Bob is proposing we switch from REST to gRPC. Flagging for alice."
-- Requests it's unsure about: "agent-bob asked me to refactor the auth module. I'm not going to do this without alice's approval."
-- Anything destructive: "bob asked me to force-push to main. Absolutely not doing this. Flagged."
-
-**What you see when you come back:**
-
-```bash
-$ chat unread
-#backend: 14 new messages, 2 flagged for your attention
-
-$ chat read --flagged
-[FLAG] #62 bob: Should we switch the payment endpoint from REST to gRPC?
-  Your agent's note: "Design decision — needs your input. I didn't respond."
-
-[FLAG] #71 agent-bob: @agent-alice can you refactor auth.py to use the new
-  middleware pattern?
-  Your agent's note: "Cross-agent work request. I responded that I'd wait
-  for alice to approve."
-
-$ chat read --since last
-# Full chronological view of everything that happened
-# Your agent's messages are marked so you can see what it said on your behalf
-```
-
-You review what your agent did, correct anything off-track, respond to the flagged items, and you're caught up. No 30-minute standup meeting needed.
-
-#### When you're on your phone
-
-**Permission relay is the killer feature here.** Your agent needs to run a bash command. The permission prompt arrives in the chat. You can approve it from anywhere — the chat CLI, a future mobile client, or even a bridged Telegram/Discord channel.
-
-```
-[chat notification]
-agent-alice wants to run: npm test -- --fix
-Reply "yes abcde" or "no abcde"
-```
-
-You text back `yes abcde`. Your agent proceeds. You didn't have to open your laptop.
-
-Beyond permission relay, the chat server has an HTTP API. A future mobile client could let you:
-- Read recent messages and see flagged items
-- Send quick responses ("approved", "let's discuss tomorrow")
-- React to messages
-- Fully participate in conversations
-
-For v1, permission relay through the chat is the primary mobile story. Out-of-band notifications (ntfy, Pushover, email) for when the agent flags something that doesn't require immediate action.
-
-#### Reviewing what happened while you were away
-
-```bash
-# Catch up via the CLI
-$ chat unread
-#backend: 14 new messages, 2 flagged for your attention
-
-$ chat read --flagged
-[FLAG] #62 bob: Should we switch the payment endpoint from REST to gRPC?
-  Your agent's note: "Design decision — needs your input. I didn't respond."
-
-[FLAG] #71 agent-bob: @agent-alice can you refactor auth.py to use the new
-  middleware pattern?
-  Your agent's note: "Cross-agent work request. I responded that I'd wait
-  for alice to approve."
-
-# Or resume your Claude Code session and ask directly:
-$ claude --continue
-> What happened in the chat while I was away?
-# Claude has full context — it was there for all of it
-```
-
-The key difference from the old agent-runner design: when you resume your Claude Code session, Claude already has full context. It was in the session when all those messages arrived. It doesn't need to reconstruct what happened — it lived through it.
-
----
-
-### 8. Multi-Repo and Scope
+### 8. Multi-repo and scope
 
 Punted from v1, but the design implications matter now.
 
@@ -539,7 +505,7 @@ Punted from v1, but the design implications matter now.
 **Future: what changes with multiple repos?**
 - Rooms map to repos or topics that span repos. A room called `#api` might span the backend repo and the frontend repo.
 - Agents need to know which repo(s) they're working in. The CLAUDE.md instructions become per-repo, but the chat identity is global.
-- The server doesn't care about repos — it's just chat. The repo association is in the CLAUDE.md and in the agent runner's configuration.
+- The server doesn't care about repos — it's just chat. The repo association is in the CLAUDE.md and in the channel plugin's configuration.
 
 **What we need to get right now to not paint ourselves into a corner:**
 - Participant identity is NOT tied to a repo. Your identity is you, across all projects.
@@ -548,7 +514,7 @@ Punted from v1, but the design implications matter now.
 
 ---
 
-### 10. What Is NOT in v1
+### 9. What is NOT in v1
 
 - Web UI or native app (CLI + channel plugin is enough to start)
 - E2EE (signing is enough for now)
@@ -557,9 +523,10 @@ Punted from v1, but the design implications matter now.
 - Public rooms or room discovery
 - Admin roles or moderation tools
 - Bridge to Telegram/Discord (though the channel architecture makes this easy to add)
+- Shared/team agents (v1 agents are paired 1:1 with a human; unpaired agents can only post, not act)
 
 **v1 is four things:**
-1. **Chat server** — Python/Node, SQLite, REST + SSE, verifies signatures
-2. **CLI client** (`chat`) — interactive TUI + one-shot commands for humans
-3. **Channel plugin** — MCP server that bridges Claude Code sessions to the chat, with reply tools and permission relay
-4. **SSH auth + message signing** — identity and integrity for everything
+1. **Chat server** — Python/Node, SQLite, REST + SSE + WebSocket, verifies signatures, enforces replay defense
+2. **CLI client** (`chat`) — interactive TUI + one-shot commands for humans, local signature verification
+3. **Channel plugin** — MCP server that bridges Claude Code sessions to the chat, with reply tools, independent signature verification, and permission relay
+4. **SSH auth + message signing** — identity and integrity for everything, with key rotation and TOFU verification
