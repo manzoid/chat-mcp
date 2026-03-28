@@ -64,7 +64,7 @@ export class ApiClient {
     const res = await fetch(`${this.baseUrl}${path}`, {
       method: "DELETE",
       headers: this.headers(),
-      ...(body && { body: JSON.stringify(body) }),
+      ...(body ? { body: JSON.stringify(body) } : {}),
     });
     if (!res.ok) {
       const respBody = await res.json().catch(() => ({}));

@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
-const CONFIG_DIR = join(homedir(), ".config", "chat-mcp");
+const CONFIG_DIR = process.env.CHAT_MCP_CONFIG_DIR ?? join(homedir(), ".config", "chat-mcp");
 const CONFIG_FILE = join(CONFIG_DIR, "config.json");
 
 export interface CliConfig {
@@ -18,11 +18,17 @@ const DEFAULT_CONFIG: CliConfig = {
 };
 
 export function loadConfig(): CliConfig {
-  if (!existsSync(CONFIG_FILE)) {
-    return { ...DEFAULT_CONFIG };
+  let config = { ...DEFAULT_CONFIG };
+  if (existsSync(CONFIG_FILE)) {
+    config = { ...config, ...JSON.parse(readFileSync(CONFIG_FILE, "utf-8")) };
   }
-  const raw = readFileSync(CONFIG_FILE, "utf-8");
-  return { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
+  // Env vars override file config (useful for multi-session setups)
+  if (process.env.CHAT_SERVER_URL) config.server_url = process.env.CHAT_SERVER_URL;
+  if (process.env.CHAT_PARTICIPANT_ID) config.participant_id = process.env.CHAT_PARTICIPANT_ID;
+  if (process.env.CHAT_SESSION_TOKEN) config.session_token = process.env.CHAT_SESSION_TOKEN;
+  if (process.env.CHAT_SSH_KEY_PATH) config.ssh_key_path = process.env.CHAT_SSH_KEY_PATH;
+  if (process.env.CHAT_DEFAULT_ROOM) config.default_room = process.env.CHAT_DEFAULT_ROOM;
+  return config;
 }
 
 export function saveConfig(config: CliConfig): void {
