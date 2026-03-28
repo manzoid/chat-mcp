@@ -1,0 +1,26 @@
+{
+  "name": "@chat-mcp/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "chat": "dist/index.js"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "vitest run --passWithNoTests",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@chat-mcp/shared": "workspace:*",
+    "commander": "^14.0.0",
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  }
+}
