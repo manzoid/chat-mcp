@@ -160,8 +160,8 @@ export function messageRoutes(
     // Update message
     const editedAt = new Date().toISOString();
     db.prepare(
-      `UPDATE messages SET content_format = ?, content_text = ?, nonce = ?, signature = ?, edited_at = ? WHERE id = ?`,
-    ).run(content.format ?? "plain", content.text, nonce, signature, editedAt, msgId);
+      `UPDATE messages SET content_format = ?, content_text = ?, nonce = ?, sender_timestamp = ?, signature = ?, edited_at = ? WHERE id = ?`,
+    ).run(content.format ?? "plain", content.text, nonce, timestamp ?? editedAt, signature, editedAt, msgId);
 
     // Emit event
     const roomId = msg.room_id as string;
