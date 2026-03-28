@@ -16,11 +16,14 @@ router = APIRouter(tags=["rooms"])
 async def create_room(req: CreateRoomRequest, request: Request):
     participant_id = await get_current_participant(request)
     async with get_db_context() as db:
-        room = await room_service.create_room(
-            db, name=req.name, created_by=participant_id,
-            topic=req.topic, participant_ids=req.participants,
-        )
-        return room.model_dump(mode="json")
+        try:
+            room = await room_service.create_room(
+                db, name=req.name, created_by=participant_id,
+                topic=req.topic, participant_ids=req.participants,
+            )
+            return room.model_dump(mode="json")
+        except Exception:
+            raise HTTPException(status_code=409, detail="Room name already exists")
 
 
 @router.get("/rooms")

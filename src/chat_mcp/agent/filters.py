@@ -18,8 +18,8 @@ def is_relevant(event: dict, config: AgentConfig, paired_human_id: str | None = 
     event_type = event.get("type", "")
     payload = event.get("payload", {})
 
-    # Only filter message events; other events (joins, status) are always relevant
-    if not event_type.startswith("message."):
+    # Only filter message.created; other events are always relevant
+    if event_type != "message.created":
         return True
 
     # Don't react to our own messages
