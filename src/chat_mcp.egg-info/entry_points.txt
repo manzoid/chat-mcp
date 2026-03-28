@@ -1,4 +1,0 @@
-[console_scripts]
-chat = chat_mcp.cli.main:cli
-chat-agent = chat_mcp.agent.runner:main
-chat-server = chat_mcp.server.app:main
