@@ -11,8 +11,17 @@ export function messageRoutes(
 ) {
   const app = new Hono();
 
+  // Helper: check that the authenticated user is a member of the room containing a message
+  function requireRoomMembership(participantId: string, roomId: string) {
+    const member = db
+      .prepare(`SELECT 1 FROM room_members WHERE room_id = ? AND participant_id = ?`)
+      .get(roomId, participantId);
+    return !!member;
+  }
+
   // Get a single message
   app.get("/:id", (c) => {
+    const participantId = c.get("participantId" as never) as string;
     const msgId = c.req.param("id");
     const msg = db.prepare(`SELECT * FROM messages WHERE id = ?`).get(msgId) as
       | Record<string, unknown>
@@ -21,6 +30,13 @@ export function messageRoutes(
       return c.json(
         { error: { code: "not_found", message: "Message not found" } },
         404,
+      );
+    }
+
+    if (!requireRoomMembership(participantId, msg.room_id as string)) {
+      return c.json(
+        { error: { code: "forbidden", message: "Not a member of this room" } },
+        403,
       );
     }
 
@@ -44,7 +60,7 @@ export function messageRoutes(
     // Thread summary
     const threadSummary = db
       .prepare(
-        `SELECT COUNT(*) as reply_count, MAX(created_at) as last_activity FROM messages WHERE thread_id = ?`,
+        `SELECT COUNT(*) as reply_count, MAX(created_at) as last_activity FROM messages WHERE thread_id = ? AND deleted = 0`,
       )
       .get(msgId) as { reply_count: number; last_activity: string | null };
 
@@ -52,7 +68,7 @@ export function messageRoutes(
       threadSummary.reply_count > 0
         ? db
             .prepare(
-              `SELECT DISTINCT author_id FROM messages WHERE thread_id = ?`,
+              `SELECT DISTINCT author_id FROM messages WHERE thread_id = ? AND deleted = 0`,
             )
             .all(msgId)
             .map((r: any) => r.author_id)
@@ -235,6 +251,13 @@ export function messageRoutes(
       );
     }
 
+    if (!requireRoomMembership(participantId, msg.room_id)) {
+      return c.json(
+        { error: { code: "forbidden", message: "Not a member of this room" } },
+        403,
+      );
+    }
+
     const body = await c.req.json();
     const { emoji, signature } = body;
 
@@ -285,6 +308,13 @@ export function messageRoutes(
       );
     }
 
+    if (!requireRoomMembership(participantId, msg.room_id)) {
+      return c.json(
+        { error: { code: "forbidden", message: "Not a member of this room" } },
+        403,
+      );
+    }
+
     db.prepare(
       `DELETE FROM reactions WHERE message_id = ? AND author_id = ? AND emoji = ?`,
     ).run(msgId, participantId, emoji);
@@ -325,6 +355,13 @@ export function messageRoutes(
       );
     }
 
+    if (!requireRoomMembership(participantId, msg.room_id)) {
+      return c.json(
+        { error: { code: "forbidden", message: "Not a member of this room" } },
+        403,
+      );
+    }
+
     db.prepare(
       `INSERT OR IGNORE INTO pins (room_id, message_id, pinned_by) VALUES (?, ?, ?)`,
     ).run(msg.room_id, msgId, participantId);
@@ -361,6 +398,13 @@ export function messageRoutes(
       return c.json(
         { error: { code: "not_found", message: "Message not found" } },
         404,
+      );
+    }
+
+    if (!requireRoomMembership(participantId, msg.room_id)) {
+      return c.json(
+        { error: { code: "forbidden", message: "Not a member of this room" } },
+        403,
       );
     }
 

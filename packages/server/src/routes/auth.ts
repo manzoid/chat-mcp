@@ -1,6 +1,11 @@
 import { Hono } from "hono";
 import type { AuthService } from "../services/auth.js";
 
+function extractParticipantId(authService: AuthService, authHeader: string | undefined): string | null {
+  if (!authHeader?.startsWith("Bearer ")) return null;
+  return authService.validateToken(authHeader.slice(7));
+}
+
 export function authRoutes(authService: AuthService) {
   const app = new Hono();
 
@@ -81,15 +86,43 @@ export function authRoutes(authService: AuthService) {
   });
 
   app.post("/revoke", async (c) => {
-    const participantId = c.get("participantId" as never);
+    const participantId = extractParticipantId(authService, c.req.header("Authorization"));
     if (!participantId) {
       return c.json(
         { error: { code: "unauthorized", message: "Not authenticated" } },
         401,
       );
     }
-    authService.revokeAllSessions(participantId as string);
+    authService.revokeAllSessions(participantId);
     return c.body(null, 204);
+  });
+
+  app.put("/keys", async (c) => {
+    const participantId = extractParticipantId(authService, c.req.header("Authorization"));
+    if (!participantId) {
+      return c.json(
+        { error: { code: "unauthorized", message: "Not authenticated" } },
+        401,
+      );
+    }
+
+    const body = await c.req.json();
+    const { public_key } = body;
+
+    if (!public_key) {
+      return c.json(
+        { error: { code: "invalid_request", message: "Missing public_key" } },
+        400,
+      );
+    }
+
+    try {
+      await authService.rotateKey(participantId as string, public_key);
+      return c.json({ ok: true, message: "Key rotated. All sessions revoked." });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Key rotation failed";
+      return c.json({ error: { code: "invalid_request", message: msg } }, 400);
+    }
   });
 
   return app;

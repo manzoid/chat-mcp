@@ -12,6 +12,9 @@ export function initDb(dbPath: string): Database.Database {
       display_name TEXT NOT NULL UNIQUE,
       type TEXT NOT NULL CHECK (type IN ('human', 'agent')),
       paired_with TEXT REFERENCES participants(id),
+      status_state TEXT DEFAULT 'offline',
+      status_description TEXT,
+      status_updated_at TEXT,
       created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
     );
 
@@ -63,6 +66,7 @@ export function initDb(dbPath: string): Database.Database {
       content_text TEXT NOT NULL,
       thread_id TEXT REFERENCES messages(id),
       nonce TEXT NOT NULL,
+      sender_timestamp TEXT NOT NULL,
       signature TEXT NOT NULL,
       deleted INTEGER NOT NULL DEFAULT 0,
       deleted_signature TEXT,

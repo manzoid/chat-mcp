@@ -82,8 +82,23 @@ export function attachmentRoutes(db: Database.Database, storagePath: string) {
     );
   });
 
+  // Helper: check if participant can access an attachment
+  // (must be member of the room the attachment's message belongs to, or be the uploader)
+  function canAccessAttachment(participantId: string, attachment: Record<string, unknown>): boolean {
+    if (attachment.uploaded_by === participantId) return true;
+    if (attachment.message_id) {
+      const msg = db.prepare(`SELECT room_id FROM messages WHERE id = ?`).get(attachment.message_id as string) as { room_id: string } | undefined;
+      if (msg) {
+        const member = db.prepare(`SELECT 1 FROM room_members WHERE room_id = ? AND participant_id = ?`).get(msg.room_id, participantId);
+        if (member) return true;
+      }
+    }
+    return false;
+  }
+
   // Download attachment
   app.get("/attachments/:id", async (c) => {
+    const participantId = c.get("participantId" as never) as string;
     const id = c.req.param("id");
     const row = db
       .prepare(`SELECT * FROM attachments WHERE id = ?`)
@@ -96,29 +111,51 @@ export function attachmentRoutes(db: Database.Database, storagePath: string) {
       );
     }
 
-    const data = await readFile(row.storage_path as string);
-    return new Response(data, {
-      headers: {
-        "Content-Type": row.mime_type as string,
-        "Content-Disposition": `attachment; filename="${row.filename}"`,
-        "Content-Length": String(row.size_bytes),
-      },
-    });
+    if (!canAccessAttachment(participantId, row)) {
+      return c.json(
+        { error: { code: "forbidden", message: "Not authorized to access this attachment" } },
+        403,
+      );
+    }
+
+    try {
+      const data = await readFile(row.storage_path as string);
+      return new Response(data, {
+        headers: {
+          "Content-Type": row.mime_type as string,
+          "Content-Disposition": `attachment; filename="${row.filename}"`,
+          "Content-Length": String(row.size_bytes),
+        },
+      });
+    } catch {
+      return c.json(
+        { error: { code: "not_found", message: "Attachment file not found on disk" } },
+        404,
+      );
+    }
   });
 
   // Get attachment metadata
   app.get("/attachments/:id/metadata", (c) => {
+    const participantId = c.get("participantId" as never) as string;
     const id = c.req.param("id");
     const row = db
       .prepare(
-        `SELECT id, filename, mime_type, size_bytes, checksum, uploaded_by, created_at FROM attachments WHERE id = ?`,
+        `SELECT id, filename, mime_type, size_bytes, checksum, uploaded_by, created_at, message_id FROM attachments WHERE id = ?`,
       )
-      .get(id);
+      .get(id) as Record<string, unknown> | undefined;
 
     if (!row) {
       return c.json(
         { error: { code: "not_found", message: "Attachment not found" } },
         404,
+      );
+    }
+
+    if (!canAccessAttachment(participantId, row)) {
+      return c.json(
+        { error: { code: "forbidden", message: "Not authorized to access this attachment" } },
+        403,
       );
     }
 

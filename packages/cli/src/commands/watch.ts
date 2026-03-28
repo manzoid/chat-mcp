@@ -18,92 +18,101 @@ export const watchCommand = new Command("watch")
       process.exit(1);
     }
 
-    // First fetch participant names for this room
+    // Fetch participant names
     const nameMap = new Map<string, string>();
     try {
       const res = await fetch(
         `${config.server_url}/rooms/${roomId}/participants`,
-        {
-          headers: { Authorization: `Bearer ${config.session_token}` },
-        },
+        { headers: { Authorization: `Bearer ${config.session_token}` } },
       );
       if (res.ok) {
         const data = await res.json();
-        for (const p of data.items) {
-          nameMap.set(p.id, p.display_name);
-        }
+        for (const p of data.items) nameMap.set(p.id, p.display_name);
       }
     } catch {
-      // Non-fatal, we'll show IDs
+      // Non-fatal
     }
 
     console.log("Watching for messages... (Ctrl+C to stop)\n");
 
-    const url = `${config.server_url}/rooms/${roomId}/events/stream`;
-    const res = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${config.session_token}`,
-        Accept: "text/event-stream",
-      },
-    });
-
-    if (!res.ok) {
-      console.error(`Failed to connect: HTTP ${res.status}`);
-      process.exit(1);
-    }
-
-    const reader = res.body?.getReader();
-    if (!reader) {
-      console.error("No response body");
-      process.exit(1);
-    }
-
-    const decoder = new TextDecoder();
-    let buffer = "";
+    let lastEventId = "0";
+    let retryDelay = 1000;
+    const maxDelay = 30000;
 
     while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+      try {
+        const url = `${config.server_url}/rooms/${roomId}/events/stream`;
+        const res = await fetch(url, {
+          headers: {
+            Authorization: `Bearer ${config.session_token}`,
+            Accept: "text/event-stream",
+            ...(lastEventId !== "0" && { "Last-Event-ID": lastEventId }),
+          },
+        });
 
-      buffer += decoder.decode(value, { stream: true });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
 
-      // Parse SSE frames
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? ""; // Keep incomplete last line
+        const reader = res.body?.getReader();
+        if (!reader) throw new Error("No response body");
 
-      let currentEvent = "";
-      let currentData = "";
+        retryDelay = 1000; // Reset on successful connect
+        if (lastEventId !== "0") {
+          console.log("  (reconnected)\n");
+        }
 
-      for (const line of lines) {
-        if (line.startsWith("event:")) {
-          currentEvent = line.slice(6).trim();
-        } else if (line.startsWith("data:")) {
-          currentData = line.slice(5).trim();
-        } else if (line === "" && currentData) {
-          // End of event
-          if (currentEvent === "message.created" && currentData) {
-            try {
-              const payload = JSON.parse(currentData);
-              const time = new Date(
-                payload.created_at,
-              ).toLocaleTimeString("en-US", {
-                hour: "2-digit",
-                minute: "2-digit",
-                hour12: false,
-              });
-              const author =
-                nameMap.get(payload.author_id) ??
-                payload.author_id.slice(0, 8);
-              console.log(
-                `[${time}] ${author}: ${payload.content?.text ?? ""}`,
-              );
-            } catch {
-              // Ignore parse errors
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let currentEvent = "";
+        let currentData = "";
+        let currentId = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) throw new Error("Stream ended");
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+
+          for (const line of lines) {
+            if (line.startsWith("event:")) currentEvent = line.slice(6).trim();
+            else if (line.startsWith("data:")) currentData = line.slice(5).trim();
+            else if (line.startsWith("id:")) currentId = line.slice(3).trim();
+            else if (line === "" && currentData) {
+              if (currentId) lastEventId = currentId;
+
+              if (currentEvent === "message.created" && currentData) {
+                try {
+                  const payload = JSON.parse(currentData);
+                  const time = new Date(payload.created_at).toLocaleTimeString(
+                    "en-US",
+                    { hour: "2-digit", minute: "2-digit", hour12: false },
+                  );
+                  const author =
+                    nameMap.get(payload.author_id) ??
+                    payload.author_id.slice(0, 8);
+                  console.log(`[${time}] ${author}: ${payload.content?.text ?? ""}`);
+                } catch {
+                  // Ignore parse errors
+                }
+              }
+
+              currentEvent = "";
+              currentData = "";
+              currentId = "";
             }
           }
-          currentEvent = "";
-          currentData = "";
         }
+      } catch (e) {
+        const jitter = Math.random() * 1000;
+        const delay = retryDelay + jitter;
+        console.error(
+          `  (disconnected, reconnecting in ${Math.round(delay / 1000)}s...)`,
+        );
+        await new Promise((r) => setTimeout(r, delay));
+        retryDelay = Math.min(retryDelay * 2, maxDelay);
       }
     }
   });

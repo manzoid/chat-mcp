@@ -145,4 +145,39 @@ export class AuthService {
       .prepare(`SELECT * FROM participants WHERE id = ?`)
       .get(participantId) as Record<string, unknown> | undefined;
   }
+
+  async rotateKey(participantId: string, newPublicKey: string): Promise<void> {
+    const fp = await fingerprint(newPublicKey);
+    const now = new Date().toISOString();
+
+    // Expire the current key
+    this.db
+      .prepare(
+        `UPDATE key_history SET valid_until = ? WHERE participant_id = ? AND valid_until IS NULL`,
+      )
+      .run(now, participantId);
+
+    // Insert new key
+    this.db
+      .prepare(
+        `INSERT INTO key_history (participant_id, public_key, fingerprint, valid_from) VALUES (?, ?, ?, ?)`,
+      )
+      .run(participantId, newPublicKey, fp, now);
+
+    // Revoke all sessions (force re-auth with new key)
+    this.revokeAllSessions(participantId);
+  }
+
+  getKeyAtTime(participantId: string, timestamp: string): string | null {
+    const row = this.db
+      .prepare(
+        `SELECT public_key FROM key_history
+         WHERE participant_id = ?
+         AND valid_from <= ?
+         AND (valid_until IS NULL OR valid_until > ?)
+         ORDER BY valid_from DESC LIMIT 1`,
+      )
+      .get(participantId, timestamp, timestamp) as { public_key: string } | undefined;
+    return row?.public_key ?? null;
+  }
 }

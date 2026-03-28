@@ -170,9 +170,9 @@ export function roomRoutes(db: Database.Database, messageService?: MessageServic
     const id = uuid();
 
     db.prepare(
-      `INSERT INTO messages (id, room_id, author_id, content_format, content_text, thread_id, nonce, signature)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(id, roomId, participantId, format, content.text, thread_id ?? null, nonce, signature);
+      `INSERT INTO messages (id, room_id, author_id, content_format, content_text, thread_id, nonce, sender_timestamp, signature)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(id, roomId, participantId, format, content.text, thread_id ?? null, nonce, timestamp, signature);
 
     // Resolve mentions
     const mentionPattern = /@(\S+)/g;
