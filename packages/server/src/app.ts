@@ -11,6 +11,7 @@ import {
   EventRepo,
 } from "./db/repos.js";
 import { createAuthRoutes, authMiddleware, verifyMessageSignature } from "./auth.js";
+import { RateLimiter, rateLimitMiddleware } from "./rate-limit.js";
 
 export type AppEnv = {
   Variables: {
@@ -35,6 +36,10 @@ export interface AppOptions {
   requireAuth?: boolean;
   /** If true, verify message/reaction signatures on ingestion. */
   verifySignatures?: boolean;
+  /** If true, enforce nonce uniqueness to prevent replay attacks. */
+  enforceNonces?: boolean;
+  /** Rate limit config. If omitted, no rate limiting. */
+  rateLimit?: { maxRequests?: number; windowMs?: number };
 }
 
 export function createApp(db: Database, options: AppOptions = {}) {
@@ -67,6 +72,13 @@ export function createApp(db: Database, options: AppOptions = {}) {
       c.set("participantId", pid);
       await next();
     });
+  }
+
+  // Rate limiting (if configured)
+  let rateLimiter: RateLimiter | undefined;
+  if (options.rateLimit) {
+    rateLimiter = new RateLimiter(options.rateLimit);
+    app.use("*", rateLimitMiddleware(rateLimiter, ["/health"]));
   }
 
   // --- Auth routes ---
@@ -208,6 +220,15 @@ export function createApp(db: Database, options: AppOptions = {}) {
     const { content, thread_id, signature, nonce, mentions } = body;
     if (!content?.text || !signature || !nonce) {
       return c.json({ error: { code: "invalid_request", message: "Missing required fields" } }, 400);
+    }
+    // Nonce uniqueness check (replay prevention)
+    if (options.enforceNonces) {
+      const existing = db.query("SELECT nonce FROM nonces WHERE nonce = ?").get(nonce);
+      if (existing) {
+        return c.json({ error: { code: "duplicate_nonce", message: "Nonce already used (possible replay)" } }, 400);
+      }
+      const nonceExpiry = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 min
+      db.run("INSERT INTO nonces (nonce, participant_id, expires_at) VALUES (?, ?, ?)", [nonce, pid, nonceExpiry]);
     }
     // Signature verification (if enabled)
     if (options.verifySignatures) {
@@ -447,5 +468,5 @@ export function createApp(db: Database, options: AppOptions = {}) {
     });
   });
 
-  return { app, repos };
+  return { app, repos, rateLimiter };
 }

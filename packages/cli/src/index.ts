@@ -6,6 +6,7 @@ import {
   loadPrivateKey,
   generateKeyPair,
 } from "@chat-mcp/shared";
+import { checkKey, listCachedKeys, acceptNewKey } from "./tofu-cache.js";
 import { loadConfig, saveConfig, getConfigDir } from "./config.js";
 import { join } from "path";
 
@@ -349,6 +350,70 @@ program
     };
 
     setInterval(poll, 2000);
+  });
+
+// --- Keys (TOFU) ---
+const keysCmd = program.command("keys").description("Manage trusted public keys (TOFU cache)");
+
+keysCmd
+  .command("list")
+  .description("List all cached public keys")
+  .action(() => {
+    const keys = listCachedKeys();
+    const entries = Object.entries(keys);
+    if (entries.length === 0) {
+      console.log("No cached keys.");
+      return;
+    }
+    for (const [id, entry] of entries) {
+      console.log(`  ${entry.displayName} (${id})`);
+      console.log(`    Fingerprint: ${entry.fingerprint}`);
+      console.log(`    First seen:  ${entry.firstSeen}`);
+      console.log(`    Last seen:   ${entry.lastSeen}`);
+    }
+  });
+
+keysCmd
+  .command("check")
+  .description("Check a participant's key against the TOFU cache")
+  .argument("<participant-id>", "Participant ID")
+  .action(async (participantId: string) => {
+    const client = createClient();
+    const participant = await client.getParticipant(participantId);
+    if (!participant.public_key_pem) {
+      console.log("Participant has no public key.");
+      return;
+    }
+    const result = checkKey(participantId, participant.public_key_pem, participant.display_name);
+    switch (result.status) {
+      case "new":
+        console.log(`New key cached for ${participant.display_name}`);
+        console.log(`  Fingerprint: ${result.entry.fingerprint}`);
+        break;
+      case "trusted":
+        console.log(`Key verified for ${participant.display_name} ✓`);
+        console.log(`  Fingerprint: ${result.entry.fingerprint}`);
+        break;
+      case "changed":
+        console.error(`⚠ KEY CHANGED for ${participant.display_name}!`);
+        console.error(`  Previous: ${result.previousEntry.fingerprint}`);
+        console.error(`  Current:  ${result.newFingerprint}`);
+        console.error(`  This could indicate key rotation or impersonation.`);
+        console.error(`  Run 'chat keys accept ${participantId}' to trust the new key.`);
+        break;
+    }
+  });
+
+keysCmd
+  .command("accept")
+  .description("Accept a changed key for a participant")
+  .argument("<participant-id>", "Participant ID")
+  .action(async (participantId: string) => {
+    const client = createClient();
+    const participant = await client.getParticipant(participantId);
+    const entry = acceptNewKey(participantId, participant.public_key_pem, participant.display_name);
+    console.log(`Accepted new key for ${participant.display_name}`);
+    console.log(`  Fingerprint: ${entry.fingerprint}`);
   });
 
 program.parse();
