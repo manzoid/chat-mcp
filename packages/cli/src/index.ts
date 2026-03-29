@@ -12,6 +12,7 @@ import { pinCommand, unpinCommand, pinsCommand } from "./commands/pin.js";
 import { searchCommand } from "./commands/search.js";
 import { pollCommand } from "./commands/poll.js";
 import { tuiCommand } from "./commands/tui.js";
+import { adminCommand } from "./commands/admin.js";
 
 const program = new Command()
   .name("chat")
@@ -37,6 +38,7 @@ program.addCommand(pinsCommand);
 program.addCommand(searchCommand);
 program.addCommand(pollCommand);
 program.addCommand(tuiCommand);
+program.addCommand(adminCommand);
 
 program.parseAsync(process.argv).catch((e) => {
   console.error(e.message);

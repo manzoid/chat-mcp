@@ -11,10 +11,11 @@ export const authCommand = new Command("auth")
 
 authCommand
   .command("register")
-  .description("Register a new participant")
+  .description("Register a new participant (via invite or admin)")
   .requiredOption("--name <name>", "Display name")
   .option("--type <type>", "Participant type", "human")
   .option("--key <path>", "SSH public key path", "~/.ssh/id_ed25519.pub")
+  .option("--invite <url>", "Invite link URL")
   .option("--paired-with <id>", "Paired human participant ID (for agents)")
   .action(async (opts) => {
     const config = loadConfig();
@@ -24,12 +25,27 @@ authCommand
     const publicKey = readFileSync(resolve(keyPath), "utf-8").trim();
     const privateKeyPath = keyPath.replace(/\.pub$/, "");
 
-    const result = await api.post("/auth/register", {
-      display_name: opts.name,
-      type: opts.type,
-      public_key: publicKey,
-      paired_with: opts.pairedWith ?? undefined,
-    });
+    let result: any;
+    if (opts.invite) {
+      // Extract UUID from invite URL
+      const inviteId = opts.invite.split("/").pop();
+      result = await api.post(`/auth/invite/${inviteId}`, {
+        display_name: opts.name,
+        type: opts.type,
+        public_key: publicKey,
+      });
+      if (result.rooms_joined?.length) {
+        config.default_room = result.rooms_joined[0];
+      }
+    } else {
+      // Direct registration (requires admin auth in session token)
+      result = await api.post("/auth/register", {
+        display_name: opts.name,
+        type: opts.type,
+        public_key: publicKey,
+        paired_with: opts.pairedWith ?? undefined,
+      });
+    }
 
     config.participant_id = result.participant_id;
     config.ssh_key_path = privateKeyPath;
