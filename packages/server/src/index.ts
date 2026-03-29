@@ -53,6 +53,30 @@ app.get("/participants/lookup", (c) => {
   return c.json({ items: rows, cursor: null, has_more: false });
 });
 
+app.post("/participants/me/status", async (c) => {
+  const participantId = c.get("participantId" as never) as string;
+  const body = await c.req.json();
+  const { state, description } = body;
+  const now = new Date().toISOString();
+  db.prepare(
+    `UPDATE participants SET status_state = ?, status_description = ?, status_updated_at = ? WHERE id = ?`,
+  ).run(state, description ?? null, now, participantId);
+
+  // Emit status event to all rooms this participant belongs to
+  const rooms = db
+    .prepare(`SELECT room_id FROM room_members WHERE participant_id = ?`)
+    .all(participantId) as { room_id: string }[];
+  for (const { room_id } of rooms) {
+    const payload = JSON.stringify({ participant_id: participantId, state, description });
+    const result = db
+      .prepare(`INSERT INTO events (room_id, event_type, payload_json) VALUES (?, ?, ?)`)
+      .run(room_id, "participant.status", payload);
+    eventService.notify(room_id, Number(result.lastInsertRowid), "participant.status", payload);
+  }
+
+  return c.json({ ok: true });
+});
+
 app.get("/participants/:id", (c) => {
   const id = c.req.param("id");
   const participant = db
