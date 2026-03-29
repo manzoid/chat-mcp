@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "chat-mcp": {
+      "command": "npx",
+      "args": ["--prefix", "./packages/channel-plugin", "tsx", "./packages/channel-plugin/src/index.ts"]
+    }
+  }
+}

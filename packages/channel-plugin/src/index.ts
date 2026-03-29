@@ -232,7 +232,7 @@ async function subscribeRoom(
       await server.server.notification({
         method: "notifications/claude/channel",
         params: {
-          content: `@${selfDisplayName} in #${roomName}:\n[${authorName}]: ${text}`,
+          content: `@${selfDisplayName} in #${roomName} (room_id: ${roomId}):\n[${authorName}]: ${text}`,
           meta: { sender: authorName },
         },
       });
