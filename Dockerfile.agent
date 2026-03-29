@@ -1,0 +1,31 @@
+FROM node:20-slim
+
+# Install ssh-keygen (needed for message signing) and git
+RUN apt-get update && apt-get install -y openssh-client git && rm -rf /var/lib/apt/lists/*
+
+# Install pnpm and Claude Code
+RUN npm i -g pnpm @anthropic-ai/claude-code
+
+# Set up workspace
+WORKDIR /workspace
+
+# Copy the chat-mcp repo (for channel plugin)
+COPY . /opt/chat-mcp
+RUN cd /opt/chat-mcp && pnpm install --frozen-lockfile
+
+# The project to work on gets mounted at /workspace
+# SSH key gets mounted at /keys
+# Profile config gets mounted at /config
+
+# Entry point: launch Claude with channel plugin
+ENTRYPOINT ["/bin/bash", "-c", "\
+  export CHAT_SERVER_URL=${CHAT_SERVER_URL:-http://host.docker.internal:8808} && \
+  export CHAT_PARTICIPANT_ID=${CHAT_PARTICIPANT_ID} && \
+  export CHAT_SSH_KEY_PATH=/keys/key && \
+  export CHAT_ROOMS=${CHAT_ROOMS} && \
+  cd /opt/chat-mcp && \
+  exec claude \
+    --dangerously-skip-permissions \
+    --dangerously-load-development-channels server:chat-mcp \
+    --add-dir /workspace \
+    \"$@\"", "--"]
