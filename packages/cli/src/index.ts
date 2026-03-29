@@ -10,6 +10,8 @@ import { editCommand } from "./commands/edit.js";
 import { deleteCommand } from "./commands/delete.js";
 import { pinCommand, unpinCommand, pinsCommand } from "./commands/pin.js";
 import { searchCommand } from "./commands/search.js";
+import { pollCommand } from "./commands/poll.js";
+import { tuiCommand } from "./commands/tui.js";
 
 const program = new Command()
   .name("chat")
@@ -33,6 +35,8 @@ program.addCommand(pinCommand);
 program.addCommand(unpinCommand);
 program.addCommand(pinsCommand);
 program.addCommand(searchCommand);
+program.addCommand(pollCommand);
+program.addCommand(tuiCommand);
 
 program.parseAsync(process.argv).catch((e) => {
   console.error(e.message);
