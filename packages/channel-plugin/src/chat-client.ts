@@ -152,6 +152,24 @@ export class ChatClient {
     if (!res.ok) throw new Error(`Delete failed: HTTP ${res.status}`);
   }
 
+  async getRoom(roomId: string): Promise<any> {
+    const res = await this.authedFetch(`${this.config.serverUrl}/rooms/${roomId}`);
+    if (!res.ok) throw new Error(`Room fetch failed: HTTP ${res.status}`);
+    return res.json();
+  }
+
+  async getParticipants(roomId: string): Promise<any> {
+    const res = await this.authedFetch(`${this.config.serverUrl}/rooms/${roomId}/participants`);
+    if (!res.ok) throw new Error(`Participants failed: HTTP ${res.status}`);
+    return res.json();
+  }
+
+  async getParticipant(participantId: string): Promise<any> {
+    const res = await this.authedFetch(`${this.config.serverUrl}/participants/${participantId}`);
+    if (!res.ok) throw new Error(`Participant failed: HTTP ${res.status}`);
+    return res.json();
+  }
+
   async setStatus(state: string, description?: string): Promise<void> {
     const res = await this.authedFetch(`${this.config.serverUrl}/participants/me/status`, {
       method: "POST",
