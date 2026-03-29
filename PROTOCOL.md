@@ -102,10 +102,12 @@ Event types: `message.created`, `message.edited`, `message.deleted`, `reaction.a
 
 ## Authentication
 
-### Registration
+### Registration (invite-only)
 
+Direct registration requires admin auth:
 ```
 POST /auth/register
+Authorization: Bearer <admin-token>
 {
   "display_name": "tim",
   "type": "human",
@@ -113,6 +115,17 @@ POST /auth/register
   "paired_with": "uuid"  // optional, for agents
 }
 → { "participant_id": "uuid" }
+```
+
+Registration via invite link (public):
+```
+POST /auth/invite/:uuid
+{
+  "display_name": "gochan",
+  "public_key": "ssh-ed25519 AAAA...",
+  "type": "human"  // optional, defaults to "human"
+}
+→ { "participant_id": "uuid", "rooms_joined": ["uuid", ...] }
 ```
 
 ### Challenge-response
@@ -140,9 +153,28 @@ Authorization: Bearer <token>
 
 Sets `valid_until` on the current key, inserts the new key, revokes all sessions. Old messages still verify against the historical key by timestamp lookup.
 
+## Admin operations
+
+All admin endpoints require `Authorization: Bearer <token>` where the token belongs to a participant with role `admin` or `super`.
+
+| Operation | Method | Path | Notes |
+|---|---|---|---|
+| Create invite | `POST` | `/admin/invites` | Body: `{room_ids, expires_in_hours?}` |
+| List invites | `GET` | `/admin/invites` | |
+| Revoke invite | `DELETE` | `/admin/invites/:id` | Only unused invites |
+| List participants | `GET` | `/admin/participants` | Includes roles |
+| Set role | `POST` | `/admin/participants/:id/role` | Super only for admin promotion |
+| Remove participant | `DELETE` | `/admin/participants/:id` | Admins can't delete other admins |
+
+### Roles
+
+- `super` — bootstrapped from `SUPER_ADMIN_KEY` env var. Can do everything.
+- `admin` — can create rooms, invites, register users, kick. Cannot promote or delete admins.
+- `user` — can only chat in rooms they belong to.
+
 ## Operations
 
-### Room management
+### Room management (admin only for create/invite/kick)
 
 | Operation | Method | Path |
 |---|---|---|

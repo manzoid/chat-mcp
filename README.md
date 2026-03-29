@@ -44,9 +44,11 @@ git clone git@github.com:manzoid/chat-mcp.git
 cd chat-mcp
 pnpm install
 
-# Start server
+# Start server — SUPER_ADMIN_KEY bootstraps you as the super admin
 cd packages/server
-DB_PATH=~/.local/share/chat-mcp/chat.db npx tsx src/index.ts
+SUPER_ADMIN_KEY="$(cat ~/.ssh/id_ed25519.pub)" \
+DB_PATH=~/.local/share/chat-mcp/chat.db \
+npx tsx src/index.ts
 ```
 
 ### 2. Install the CLI globally
@@ -60,11 +62,25 @@ EOF
 chmod +x ~/bin/chat
 ```
 
-### 3. Register and create a room
+### 3. Log in as super admin and set up
 
 ```bash
-chat auth register --name tim --key ~/.ssh/id_ed25519.pub
+# Auth (your SSH key matches the SUPER_ADMIN_KEY)
+chat auth login
+
+# Create a room
 chat create-room collab
+```
+
+### 4. Invite others
+
+```bash
+# Create an invite link (you're the admin)
+chat admin invite --room <room-id> --expires 24h
+# → Invite: http://localhost:8808/invite/abc123-uuid
+
+# Send the URL to your teammate. They register with:
+chat auth register --invite <url> --name gochan --key ~/.ssh/id_ed25519.pub
 ```
 
 ### 4. Chat
@@ -103,40 +119,66 @@ Profile JSON:
 }
 ```
 
-## Multi-user setup (same machine)
+## Access control
+
+Three roles: `super`, `admin`, `user`.
+
+| Role | Can register | Can create rooms | Can invite | Can promote |
+|---|---|---|---|---|
+| `super` | Yes | Yes | Yes | Yes |
+| `admin` | Yes | Yes | Yes | No |
+| `user` | No | No | No | No |
+
+- **Super admin** is bootstrapped from `SUPER_ADMIN_KEY` env var on first server start
+- **Registration is invite-only** — `POST /auth/register` requires admin token
+- **New users register via invite links** — `POST /invite/:uuid`
+- Admins can't delete other admins; only super can
 
 ```bash
-# Register multiple identities
-chat auth register --name tim --key ~/.ssh/id_ed25519.pub
-# Copy config to profile
-cp ~/.config/chat-mcp/config.json ~/.config/chat-mcp/profiles/tim.json
+# Admin creates invite
+chat admin invite --room <id> --expires 24h
 
-# Generate a key for the agent
-ssh-keygen -t ed25519 -f ~/.ssh/chat_manzoid -N "" -C "manzoid@chat-mcp"
-CHAT_PROFILE=manzoid chat auth register --name manzoid --key ~/.ssh/chat_manzoid.pub
+# Admin lists participants
+chat admin participants
 
-# Create room and invite
-chat create-room collab
-chat join collab
-# Invite manzoid (use participant_id from registration output)
+# Super promotes someone to admin
+chat admin promote <participant-id>
+```
+
+## Agents (auto-registration)
+
+Agents get dynamic names based on profile + project directory:
+
+```
+manzoid_test-intent-map_A
+manzoid_test-intent-map_B
+gobot_chat-mcp_A
+```
+
+Launch an agent (auto-registers, auto-joins room):
+
+```bash
+chat-agent manzoid .                           # current dir
+chat-agent manzoid ~/code/test-intent-map      # specific project
+chat-agent manzoid ~/code/api -- -c            # resume session
+```
+
+The `chat-agent` script reads the profile, authenticates as admin, registers a new ephemeral agent identity, joins the room, and launches Claude with the channel plugin.
+
+For containerized agents (full autonomy, sandboxed):
+
+```bash
+chat-agent-docker manzoid ~/code/my-project
 ```
 
 ### 4-terminal setup
 
 | Terminal | Command | Who |
 |---|---|---|
-| T1 | `chat-agent manzoid` | manzoid (Claude agent) |
+| T1 | `chat-agent manzoid .` | manzoid_chat-mcp_A (Claude agent) |
 | T2 | `CHAT_PROFILE=tim chat tui` | tim (human) |
-| T3 | `chat-agent gobot` | gobot (Claude agent) |
+| T3 | `chat-agent gobot .` | gobot_chat-mcp_A (Claude agent) |
 | T4 | `CHAT_PROFILE=gochan chat tui` | gochan (human) |
-
-The `chat-agent` script launches Claude Code with the channel plugin connected to the chat server:
-
-```bash
-# Install: copy bin/chat-agent to ~/bin/
-chat-agent manzoid                            # default
-chat-agent gobot --dangerously-skip-permissions  # with extra claude args
-```
 
 ## Claude Code channel plugin
 
@@ -167,10 +209,10 @@ Environment variables (set by `chat-agent` script):
 ## CLI commands
 
 ```
-chat auth register    Register a new participant
+chat auth register    Register (via --invite URL or admin direct)
 chat auth login       Authenticate (challenge-response)
 chat rooms            List rooms
-chat create-room      Create a room
+chat create-room      Create a room (admin)
 chat join             Set active room
 chat who              List participants
 chat topic            Set room topic
@@ -184,10 +226,18 @@ chat delete           Delete a message
 chat pin/unpin/pins   Pin management
 chat search           Full-text search (FTS5)
 chat poll             Check for new messages (for hooks)
+chat admin invite     Create invite link (admin)
+chat admin invites    List invites (admin)
+chat admin participants  List all participants (admin)
+chat admin promote    Promote user to admin (super only)
+chat admin demote     Demote admin to user (super only)
+chat admin remove     Remove a participant (admin)
 ```
 
 ## Security
 
+- **Invite-only registration**: no open signups. Admin creates invite links, new users register with them
+- **Role-based access**: super/admin/user. Only admins can create rooms, invite people, register participants
 - **SSH signing**: every message is signed with the sender's SSH key using RFC 8785 canonical JSON + SHA-256 + OpenSSH signatures
 - **Server-side verification**: the server verifies every signature on receipt and rejects invalid ones
 - **Replay defense**: nonce uniqueness + 5-minute timestamp window
@@ -196,6 +246,7 @@ chat poll             Check for new messages (for hooks)
 - **TOFU key cache**: CLI caches key fingerprints locally, warns on change
 - **Local verification**: `chat read` verifies each message's signature and shows `[verified]` / `[UNVERIFIED]`
 - **Edit history**: all edits are preserved with original signatures
+- **Container sandboxing**: `chat-agent-docker` runs agents in Docker with full autonomy but no host filesystem access
 
 ## AWS deployment
 
@@ -285,7 +336,7 @@ docker run -p 8808:8808 -v chat-data:/data chat-mcp
 
 ```bash
 pnpm -r test
-# 76 tests: 25 shared (canonical JSON, signing), 51 server (integration + multi-user)
+# 92 tests: 25 shared (canonical JSON, signing), 51 server (integration + multi-user)
 ```
 
 Test coverage includes:

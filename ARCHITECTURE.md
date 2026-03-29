@@ -135,9 +135,14 @@ SQLite with WAL mode and foreign keys enabled. Key tables:
 | `pins` | Pinned messages per room |
 | `events` | Event log with autoincrement seq per room |
 | `nonces` | Replay defense (used nonces with expiry) |
+| `invites` | Single-use invite links with room list and expiry |
 | `messages_fts` | FTS5 virtual table for full-text search |
 
 ## Security model
+
+**Access control:** Three roles — `super` (bootstrapped from `SUPER_ADMIN_KEY` env var), `admin` (can create rooms, invites, register users), `user` (can only chat). Registration is invite-only. No open signups.
+
+**Invite flow:** Admin creates invite link → sends URL out-of-band → new user registers with invite UUID + their SSH public key. Invite is single-use with optional expiry.
 
 **Authentication:** SSH challenge-response. Server issues a random challenge, client signs it with their SSH key, server verifies against stored public key. Session tokens are short-lived (24h).
 
@@ -189,4 +194,4 @@ chat-mcp/
 └── .mcp.json            # MCP server registration for channel plugin
 ```
 
-76 tests total across shared (canonical JSON, signing) and server (integration + multi-user + security + key rotation + e2e signing lifecycle).
+92 tests total across shared (canonical JSON, signing) and server (integration + multi-user + security + key rotation + e2e signing lifecycle).
