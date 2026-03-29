@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import React, { useState, useEffect, useCallback } from "react";
-import { render, Box, Text, useInput, useApp } from "ink";
+import { render, Static, Box, Text, useInput, useApp } from "ink";
 import TextInput from "ink-text-input";
 import { v4 as uuid } from "uuid";
 import { sign } from "@chat-mcp/shared";
@@ -79,10 +79,7 @@ function App({ config, roomId, roomName, initialMessages, participants }: AppPro
   const [nameMap, setNameMap] = useState(participants);
   const [input, setInput] = useState("");
   const [status, setStatus] = useState("connected");
-  const [scrollOffset, setScrollOffset] = useState(0);
-
-  const termHeight = process.stdout.rows || 24;
-  const messageAreaHeight = termHeight - 4; // header + input + borders
+  const _ = process.stdout.rows; // keep terminal reference
 
   const selfName = config.participant_id
     ? nameMap.get(config.participant_id)
@@ -172,8 +169,6 @@ function App({ config, roomId, roomName, initialMessages, participants }: AppPro
               reactions: [],
             },
           ]);
-          // Auto-scroll to bottom on new message
-          setScrollOffset(0);
         } else if (event === "message.edited") {
           setMessages((prev) =>
             prev.map((m) =>
@@ -249,50 +244,38 @@ function App({ config, roomId, roomName, initialMessages, participants }: AppPro
     [config, roomId],
   );
 
-  // Keyboard: scroll, quit
+  // Keyboard: quit
   useInput((ch, key) => {
     if (key.escape || (ch === "c" && key.ctrl)) {
       exit();
     }
-    if (key.upArrow || key.pageUp) {
-      setScrollOffset((prev) => Math.min(prev + (key.pageUp ? 10 : 1), Math.max(0, messages.length - messageAreaHeight)));
-    }
-    if (key.downArrow || key.pageDown) {
-      setScrollOffset((prev) => Math.max(0, prev - (key.pageDown ? 10 : 1)));
-    }
   });
 
-  // Visible messages (scroll from bottom)
-  const visibleMessages = messages.slice(
-    Math.max(0, messages.length - messageAreaHeight - scrollOffset),
-    messages.length - scrollOffset,
-  );
-
-  const scrollIndicator = scrollOffset > 0 ? ` (+${scrollOffset} more below)` : "";
+  // Split messages: older ones go into Static (rendered once, no flicker),
+  // only the last few stay in the dynamic section
+  const staticMessages = messages.slice(0, Math.max(0, messages.length - 3));
+  const dynamicMessages = messages.slice(Math.max(0, messages.length - 3));
 
   return (
-    <Box flexDirection="column" height={termHeight}>
-      {/* Header */}
-      <Box paddingX={1}>
-        <Text bold color="blue">#{roomName}</Text>
-        <Text dimColor>  {nameMap.size} participants  </Text>
-        <Text dimColor color={status === "connected" ? "green" : "yellow"}>
-          {status}
-        </Text>
-        {scrollIndicator && <Text dimColor>{scrollIndicator}</Text>}
-      </Box>
+    <>
+      {/* Static area: rendered once per message, never re-rendered */}
+      <Static items={staticMessages}>
+        {(msg) => (
+          <Box key={msg.id} paddingX={1}>
+            <MessageLine msg={msg} selfName={selfName} />
+          </Box>
+        )}
+      </Static>
+
+      {/* Dynamic area: header + recent messages + input */}
       <Box paddingX={1}>
         <Text dimColor>{"─".repeat(Math.min(80, process.stdout.columns - 4))}</Text>
       </Box>
-
-      {/* Messages */}
-      <Box flexDirection="column" flexGrow={1} paddingX={1}>
-        {visibleMessages.map((msg) => (
-          <MessageLine key={msg.id} msg={msg} selfName={selfName} />
-        ))}
-      </Box>
-
-      {/* Input */}
+      {dynamicMessages.map((msg) => (
+        <Box key={msg.id} paddingX={1}>
+          <MessageLine msg={msg} selfName={selfName} />
+        </Box>
+      ))}
       <Box paddingX={1}>
         <Text dimColor>{"─".repeat(Math.min(80, process.stdout.columns - 4))}</Text>
       </Box>
@@ -300,7 +283,7 @@ function App({ config, roomId, roomName, initialMessages, participants }: AppPro
         <Text bold color="green">&gt; </Text>
         <TextInput value={input} onChange={setInput} onSubmit={handleSubmit} />
       </Box>
-    </Box>
+    </>
   );
 }
 
