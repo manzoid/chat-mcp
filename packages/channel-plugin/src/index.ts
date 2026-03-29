@@ -57,6 +57,7 @@ server.tool(
   },
   async ({ room_id, text, thread_id }) => {
     await chatClient.sendMessage(room_id, text, thread_id);
+    chatClient.setStatus("online").catch(() => {});
     return { content: [{ type: "text" as const, text: `Sent: ${text}` }] };
   },
 );
@@ -227,6 +228,9 @@ async function subscribeRoom(
 
       const authorName =
         nameMap.get(payload.author_id) ?? payload.author_id.slice(0, 8);
+
+      // Set status to show we're processing
+      chatClient.setStatus("busy", `responding to ${authorName}`).catch(() => {});
 
       // Push notification into Claude's conversation via channel
       await server.server.notification({

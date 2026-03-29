@@ -79,7 +79,7 @@ function App({ config, roomId, roomName, initialMessages, participants }: AppPro
   const [nameMap, setNameMap] = useState(participants);
   const [input, setInput] = useState("");
   const [status, setStatus] = useState("connected");
-  const _ = process.stdout.rows; // keep terminal reference
+  const [busyParticipants, setBusyParticipants] = useState<Map<string, string>>(new Map());
 
   const selfName = config.participant_id
     ? nameMap.get(config.participant_id)
@@ -194,6 +194,22 @@ function App({ config, roomId, roomName, initialMessages, participants }: AppPro
               return { ...m, reactions: [...m.reactions, { emoji, count: 1 }] };
             }),
           );
+        } else if (event === "participant.status") {
+          const pid = payload.participant_id;
+          const name = nameMap.get(pid) ?? pid?.slice(0, 8) ?? "?";
+          if (payload.state === "busy") {
+            setBusyParticipants((prev) => {
+              const next = new Map(prev);
+              next.set(pid, payload.description ? `${name}: ${payload.description}` : `${name} is thinking...`);
+              return next;
+            });
+          } else {
+            setBusyParticipants((prev) => {
+              const next = new Map(prev);
+              next.delete(pid);
+              return next;
+            });
+          }
         }
       } catch {
         // ignore parse errors
@@ -276,6 +292,14 @@ function App({ config, roomId, roomName, initialMessages, participants }: AppPro
           <MessageLine msg={msg} selfName={selfName} />
         </Box>
       ))}
+      {/* Status indicators */}
+      {busyParticipants.size > 0 && (
+        <Box paddingX={1}>
+          <Text dimColor italic>
+            {[...busyParticipants.values()].join("  ·  ")}
+          </Text>
+        </Box>
+      )}
       <Box paddingX={1}>
         <Text dimColor>{"─".repeat(Math.min(80, process.stdout.columns - 4))}</Text>
       </Box>
