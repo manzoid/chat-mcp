@@ -22,33 +22,40 @@ let roomId: string;
 
 beforeAll(async () => {
   tmpDir = mkdtempSync(join(tmpdir(), "chat-mcp-multi-"));
-  testApp = createTestApp();
+  testApp = await createTestApp(tmpDir);
 
   const aliceKeys = generateTestKeys(tmpDir, "alice");
   const bobKeys = generateTestKeys(tmpDir, "bob");
 
   alice = await registerAndAuth(
     testApp.app,
+    testApp.adminUser.sessionToken,
     "alice",
     aliceKeys.keyPath,
     aliceKeys.publicKey,
   );
   bob = await registerAndAuth(
     testApp.app,
+    testApp.adminUser.sessionToken,
     "bob",
     bobKeys.keyPath,
     bobKeys.publicKey,
   );
 
-  // Create room and invite bob
-  const roomRes = await authedReq(testApp.app, alice.sessionToken, "/rooms", {
+  // Create room (admin creates) and invite alice + bob
+  const roomRes = await authedReq(testApp.app, testApp.adminUser.sessionToken, "/rooms", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name: "shared-room" }),
   });
   roomId = (await roomRes.json()).id;
 
-  await authedReq(testApp.app, alice.sessionToken, `/rooms/${roomId}/invite`, {
+  await authedReq(testApp.app, testApp.adminUser.sessionToken, `/rooms/${roomId}/invite`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ participant_id: alice.participantId }),
+  });
+  await authedReq(testApp.app, testApp.adminUser.sessionToken, `/rooms/${roomId}/invite`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ participant_id: bob.participantId }),
@@ -181,6 +188,7 @@ describe("outsider access denied", () => {
     const outsiderKeys = generateTestKeys(tmpDir, "outsider");
     outsider = await registerAndAuth(
       testApp.app,
+      testApp.adminUser.sessionToken,
       "outsider",
       outsiderKeys.keyPath,
       outsiderKeys.publicKey,

@@ -9,7 +9,16 @@ function extractParticipantId(authService: AuthService, authHeader: string | und
 export function authRoutes(authService: AuthService) {
   const app = new Hono();
 
+  // Direct registration — admin only
   app.post("/register", async (c) => {
+    const adminId = extractParticipantId(authService, c.req.header("Authorization"));
+    if (!adminId || !authService.isAdmin(adminId)) {
+      return c.json(
+        { error: { code: "forbidden", message: "Admin access required. Use an invite link to register." } },
+        403,
+      );
+    }
+
     const body = await c.req.json();
     const { display_name, type, public_key, paired_with } = body;
 
@@ -36,6 +45,41 @@ export function authRoutes(authService: AuthService) {
         { error: { code: "invalid_request", message: msg } },
         400,
       );
+    }
+  });
+
+  // Register via invite link (public)
+  app.post("/invite/:uuid", async (c) => {
+    const inviteId = c.req.param("uuid");
+    const body = await c.req.json();
+    const { display_name, public_key, type } = body;
+
+    if (!display_name || !public_key) {
+      return c.json(
+        { error: { code: "invalid_request", message: "Missing display_name or public_key" } },
+        400,
+      );
+    }
+
+    try {
+      const result = await authService.consumeInvite(
+        inviteId,
+        display_name,
+        type ?? "human",
+        public_key,
+      );
+      return c.json(
+        { participant_id: result.participantId, rooms_joined: result.roomIds },
+        201,
+      );
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Invite registration failed";
+      const code = msg.includes("not found") ? "not_found"
+        : msg.includes("expired") ? "invite_expired"
+        : msg.includes("already used") ? "invite_used"
+        : "invalid_request";
+      const status = msg.includes("not found") ? 404 : 400;
+      return c.json({ error: { code, message: msg } }, status);
     }
   });
 

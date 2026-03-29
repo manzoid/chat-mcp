@@ -4,13 +4,21 @@ import { v4 as uuid } from "uuid";
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "@chat-mcp/shared";
 import type { MessageService } from "../services/messages.js";
 import type { EventService } from "../services/events.js";
+import type { AuthService } from "../services/auth.js";
 
-export function roomRoutes(db: Database.Database, messageService?: MessageService, eventService?: EventService) {
+export function roomRoutes(db: Database.Database, messageService?: MessageService, eventService?: EventService, authService?: AuthService) {
   const app = new Hono();
 
-  // Create room
+  // Create room (admin only)
   app.post("/", async (c) => {
     const participantId = c.get("participantId" as never) as string;
+    if (authService && !authService.isAdmin(participantId)) {
+      return c.json(
+        { error: { code: "forbidden", message: "Admin access required to create rooms" } },
+        403,
+      );
+    }
+
     const body = await c.req.json();
     const { name, participants } = body;
 
@@ -277,22 +285,17 @@ export function roomRoutes(db: Database.Database, messageService?: MessageServic
   });
 
   // Invite participant
+  // Invite to room (admin only)
   app.post("/:id/invite", async (c) => {
     const participantId = c.get("participantId" as never) as string;
-    const roomId = c.req.param("id");
-
-    const member = db
-      .prepare(
-        `SELECT 1 FROM room_members WHERE room_id = ? AND participant_id = ?`,
-      )
-      .get(roomId, participantId);
-
-    if (!member) {
+    if (authService && !authService.isAdmin(participantId)) {
       return c.json(
-        { error: { code: "forbidden", message: "Not a member of this room" } },
+        { error: { code: "forbidden", message: "Admin access required to invite" } },
         403,
       );
     }
+
+    const roomId = c.req.param("id");
 
     const body = await c.req.json();
     const { participant_id } = body;
@@ -427,20 +430,17 @@ export function roomRoutes(db: Database.Database, messageService?: MessageServic
   });
 
   // Kick participant
+  // Kick from room (admin only)
   app.post("/:id/kick", async (c) => {
     const participantId = c.get("participantId" as never) as string;
-    const roomId = c.req.param("id");
-
-    const room = db
-      .prepare(`SELECT created_by FROM rooms WHERE id = ?`)
-      .get(roomId) as { created_by: string } | undefined;
-
-    if (!room || room.created_by !== participantId) {
+    if (authService && !authService.isAdmin(participantId)) {
       return c.json(
-        { error: { code: "forbidden", message: "Only room creator can kick" } },
+        { error: { code: "forbidden", message: "Admin access required to kick" } },
         403,
       );
     }
+
+    const roomId = c.req.param("id");
 
     const body = await c.req.json();
     const { participant_id } = body;

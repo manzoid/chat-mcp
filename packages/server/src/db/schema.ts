@@ -11,6 +11,7 @@ export function initDb(dbPath: string): Database.Database {
       id TEXT PRIMARY KEY,
       display_name TEXT NOT NULL UNIQUE,
       type TEXT NOT NULL CHECK (type IN ('human', 'agent')),
+      role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('super', 'admin', 'user')),
       paired_with TEXT REFERENCES participants(id),
       status_state TEXT DEFAULT 'offline',
       status_description TEXT,
@@ -161,7 +162,24 @@ export function initDb(dbPath: string): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_key_history_participant ON key_history(participant_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_participant ON sessions(participant_id);
     CREATE INDEX IF NOT EXISTS idx_nonces_expires ON nonces(expires_at);
+
+    -- Invite links for registration
+    CREATE TABLE IF NOT EXISTS invites (
+      id TEXT PRIMARY KEY,
+      room_ids TEXT NOT NULL,
+      created_by TEXT NOT NULL REFERENCES participants(id),
+      expires_at TEXT,
+      used_by TEXT REFERENCES participants(id),
+      used_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    );
   `);
+
+  // Migration: add role column to existing databases
+  const cols = db.prepare(`PRAGMA table_info(participants)`).all() as { name: string }[];
+  if (!cols.some((c) => c.name === "role")) {
+    db.exec(`ALTER TABLE participants ADD COLUMN role TEXT NOT NULL DEFAULT 'user'`);
+  }
 
   return db;
 }

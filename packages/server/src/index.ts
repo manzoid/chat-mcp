@@ -9,6 +9,7 @@ import { roomRoutes } from "./routes/rooms.js";
 import { messageRoutes } from "./routes/messages.js";
 import { eventRoutes } from "./routes/events.js";
 import { attachmentRoutes } from "./routes/attachments.js";
+import { adminRoutes } from "./routes/admin.js";
 import { healthRoutes } from "./routes/health.js";
 import { bearerAuth } from "./middleware/auth.js";
 import { protocolVersion } from "./middleware/protocol-version.js";
@@ -16,11 +17,19 @@ import { protocolVersion } from "./middleware/protocol-version.js";
 const PORT = parseInt(process.env.PORT ?? "8808");
 const DB_PATH = process.env.DB_PATH ?? "chat.db";
 const ATTACHMENT_PATH = process.env.ATTACHMENT_PATH ?? "./attachments";
+const SUPER_ADMIN_KEY = process.env.SUPER_ADMIN_KEY;
 
 const db = initDb(DB_PATH);
 const authService = new AuthService(db);
 const messageService = new MessageService(db);
 const eventService = new EventService(db);
+
+// Bootstrap super admin from env var
+if (SUPER_ADMIN_KEY) {
+  authService.bootstrapSuperAdmin(SUPER_ADMIN_KEY).then((id) => {
+    console.log(`Super admin: ${id}`);
+  });
+}
 
 const app = new Hono();
 
@@ -35,19 +44,21 @@ app.route("/auth", authRoutes(authService));
 app.use("/rooms/*", bearerAuth(authService));
 app.use("/messages/*", bearerAuth(authService));
 app.use("/participants/*", bearerAuth(authService));
-app.route("/rooms", roomRoutes(db, messageService, eventService));
+app.use("/admin/*", bearerAuth(authService));
+app.route("/rooms", roomRoutes(db, messageService, eventService, authService));
 app.route("/rooms", eventRoutes(db, eventService));
 app.route("/messages", messageRoutes(db, messageService, eventService));
+app.route("/admin", adminRoutes(db, authService));
 app.use("/attachments/*", bearerAuth(authService));
 const attachRoutes = attachmentRoutes(db, ATTACHMENT_PATH);
 app.route("/", attachRoutes);
 
-// Participant lookup
+// Participant endpoints
 app.get("/participants/lookup", (c) => {
   const displayName = c.req.query("display_name");
   const query = displayName
-    ? `SELECT id, display_name, type, paired_with FROM participants WHERE display_name LIKE ?`
-    : `SELECT id, display_name, type, paired_with FROM participants LIMIT 50`;
+    ? `SELECT id, display_name, type, role, paired_with FROM participants WHERE display_name LIKE ?`
+    : `SELECT id, display_name, type, role, paired_with FROM participants LIMIT 50`;
   const params = displayName ? [`%${displayName}%`] : [];
   const rows = db.prepare(query).all(...params);
   return c.json({ items: rows, cursor: null, has_more: false });
@@ -62,7 +73,6 @@ app.post("/participants/me/status", async (c) => {
     `UPDATE participants SET status_state = ?, status_description = ?, status_updated_at = ? WHERE id = ?`,
   ).run(state, description ?? null, now, participantId);
 
-  // Emit status event to all rooms this participant belongs to
   const rooms = db
     .prepare(`SELECT room_id FROM room_members WHERE participant_id = ?`)
     .all(participantId) as { room_id: string }[];
@@ -77,10 +87,32 @@ app.post("/participants/me/status", async (c) => {
   return c.json({ ok: true });
 });
 
+// Change own display name
+app.patch("/participants/me", async (c) => {
+  const participantId = c.get("participantId" as never) as string;
+  const body = await c.req.json();
+  const { display_name } = body;
+
+  if (!display_name) {
+    return c.json(
+      { error: { code: "invalid_request", message: "Missing display_name" } },
+      400,
+    );
+  }
+
+  try {
+    authService.updateDisplayName(participantId, display_name);
+    return c.json({ ok: true, display_name });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : "Update failed";
+    return c.json({ error: { code: "invalid_request", message: msg } }, 400);
+  }
+});
+
 app.get("/participants/:id", (c) => {
   const id = c.req.param("id");
   const participant = db
-    .prepare(`SELECT id, display_name, type, paired_with, created_at FROM participants WHERE id = ?`)
+    .prepare(`SELECT id, display_name, type, role, paired_with, created_at FROM participants WHERE id = ?`)
     .get(id);
   if (!participant) {
     return c.json(

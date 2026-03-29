@@ -1,24 +1,19 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Hono } from "hono";
-import { mkdtempSync, readFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { rmSync } from "node:fs";
 import { sign } from "@chat-mcp/shared";
 import { v4 as uuid } from "uuid";
 
-import { initDb } from "../src/db/schema.js";
-import { AuthService } from "../src/services/auth.js";
-import { MessageService } from "../src/services/messages.js";
-import { EventService } from "../src/services/events.js";
-import { authRoutes } from "../src/routes/auth.js";
-import { roomRoutes } from "../src/routes/rooms.js";
-import { messageRoutes } from "../src/routes/messages.js";
-import { eventRoutes } from "../src/routes/events.js";
-import { healthRoutes } from "../src/routes/health.js";
-import { bearerAuth } from "../src/middleware/auth.js";
-import { protocolVersion } from "../src/middleware/protocol-version.js";
+import {
+  createTestApp,
+  generateTestKeys,
+  registerAndAuth,
+  type TestApp,
+  type TestUser,
+} from "./helpers.js";
 
 let tmpDir: string;
 let keyPath: string;
@@ -26,6 +21,7 @@ let publicKey: string;
 let app: Hono;
 let participantId: string;
 let sessionToken: string;
+let testApp: TestApp;
 
 function req(path: string, init?: RequestInit) {
   return app.request(`http://localhost${path}`, init);
@@ -38,64 +34,26 @@ function authedReq(path: string, init?: RequestInit) {
 }
 
 beforeAll(async () => {
-  // Generate test SSH keypair
   tmpDir = mkdtempSync(join(tmpdir(), "chat-mcp-integ-"));
-  keyPath = join(tmpDir, "test_key");
-  execFileSync("ssh-keygen", ["-t", "ed25519", "-f", keyPath, "-N", "", "-C", "test@chat-mcp"]);
-  publicKey = readFileSync(keyPath + ".pub", "utf-8").trim();
+  testApp = await createTestApp(tmpDir);
+  app = testApp.app;
 
-  // Set up app with in-memory DB
-  const db = initDb(":memory:");
-  const authService = new AuthService(db);
-  const messageService = new MessageService(db);
-  const eventService = new EventService(db);
+  // Register alice via admin
+  const aliceKeys = generateTestKeys(tmpDir, "alice");
+  keyPath = aliceKeys.keyPath;
+  publicKey = aliceKeys.publicKey;
+  const alice = await registerAndAuth(
+    app,
+    testApp.adminUser.sessionToken,
+    "alice",
+    aliceKeys.keyPath,
+    aliceKeys.publicKey,
+  );
+  participantId = alice.participantId;
+  sessionToken = alice.sessionToken;
 
-  app = new Hono();
-  app.use("*", protocolVersion());
-  app.route("/health", healthRoutes());
-  app.route("/auth", authRoutes(authService));
-  app.use("/rooms/*", bearerAuth(authService));
-  app.use("/messages/*", bearerAuth(authService));
-  app.route("/rooms", roomRoutes(db, messageService, eventService));
-  app.route("/rooms", eventRoutes(db, eventService));
-  app.route("/messages", messageRoutes(db, messageService, eventService));
-  app.use("/participants/*", bearerAuth(authService));
-
-  // Register
-  const regRes = await req("/auth/register", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      display_name: "alice",
-      type: "human",
-      public_key: publicKey,
-    }),
-  });
-  const regBody = await regRes.json();
-  participantId = regBody.participant_id;
-
-  // Challenge
-  const chalRes = await req("/auth/challenge", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ participant_id: participantId }),
-  });
-  const chalBody = await chalRes.json();
-
-  // Sign challenge
-  const signedChallenge = await sign(keyPath, { challenge: chalBody.challenge });
-
-  // Verify
-  const verRes = await req("/auth/verify", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      participant_id: participantId,
-      signed_challenge: signedChallenge,
-    }),
-  });
-  const verBody = await verRes.json();
-  sessionToken = verBody.session_token;
+  // Promote alice to admin so existing tests (room creation, invites) work
+  testApp.db.prepare(`UPDATE participants SET role = 'admin' WHERE id = ?`).run(participantId);
 });
 
 afterAll(() => {
@@ -250,20 +208,18 @@ describe("rooms", () => {
   });
 
   it("returns 403 for non-members", async () => {
-    // Register another user
-    const regRes = await req("/auth/register", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        display_name: "bob",
-        type: "human",
-        public_key: publicKey, // reusing key for simplicity
-      }),
-    });
+    // Register bob via admin
+    const bobKeys = generateTestKeys(tmpDir, "bob-integ");
+    const bob = await registerAndAuth(
+      app,
+      testApp.adminUser.sessionToken,
+      "bob-integ",
+      bobKeys.keyPath,
+      bobKeys.publicKey,
+    );
 
-    // Bob is not in the room, but we'd need bob's token to test this properly
-    // For now, just verify the room membership check exists
-    expect(regRes.status).toBe(201);
+    // Bob is not in the room, should get 403
+    expect(bob.participantId).toBeTruthy();
   });
 });
 

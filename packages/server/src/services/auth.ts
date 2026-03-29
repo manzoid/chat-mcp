@@ -12,6 +12,7 @@ export class AuthService {
     type: "human" | "agent",
     publicKey: string,
     pairedWith?: string,
+    role: "super" | "admin" | "user" = "user",
   ): Promise<string> {
     const id = uuid();
     const fp = await fingerprint(publicKey);
@@ -19,9 +20,9 @@ export class AuthService {
 
     this.db
       .prepare(
-        `INSERT INTO participants (id, display_name, type, paired_with) VALUES (?, ?, ?, ?)`,
+        `INSERT INTO participants (id, display_name, type, role, paired_with) VALUES (?, ?, ?, ?, ?)`,
       )
-      .run(id, displayName, type, pairedWith ?? null);
+      .run(id, displayName, type, role, pairedWith ?? null);
 
     this.db
       .prepare(
@@ -179,5 +180,122 @@ export class AuthService {
       )
       .get(participantId, timestamp, timestamp) as { public_key: string } | undefined;
     return row?.public_key ?? null;
+  }
+
+  getParticipantRole(participantId: string): "super" | "admin" | "user" {
+    const row = this.db
+      .prepare(`SELECT role FROM participants WHERE id = ?`)
+      .get(participantId) as { role: string } | undefined;
+    return (row?.role as "super" | "admin" | "user") ?? "user";
+  }
+
+  isAdmin(participantId: string): boolean {
+    const role = this.getParticipantRole(participantId);
+    return role === "admin" || role === "super";
+  }
+
+  async bootstrapSuperAdmin(publicKey: string): Promise<string> {
+    // Check if a super admin already exists
+    const existing = this.db
+      .prepare(`SELECT id FROM participants WHERE role = 'super'`)
+      .get() as { id: string } | undefined;
+
+    if (existing) return existing.id;
+
+    // Extract display name from SSH key comment (third field) or default
+    const parts = publicKey.trim().split(/\s+/);
+    const comment = parts[2] ?? "super-admin";
+    const displayName = comment.replace(/@.*$/, "") || "super-admin";
+
+    return this.register(displayName, "human", publicKey, undefined, "super");
+  }
+
+  createInvite(
+    creatorId: string,
+    roomIds: string[],
+    expiresAt?: string,
+  ): string {
+    const id = uuid();
+    this.db
+      .prepare(
+        `INSERT INTO invites (id, room_ids, created_by, expires_at) VALUES (?, ?, ?, ?)`,
+      )
+      .run(id, JSON.stringify(roomIds), creatorId, expiresAt ?? null);
+    return id;
+  }
+
+  async consumeInvite(
+    inviteId: string,
+    displayName: string,
+    type: "human" | "agent",
+    publicKey: string,
+  ): Promise<{ participantId: string; roomIds: string[] }> {
+    const invite = this.db
+      .prepare(`SELECT * FROM invites WHERE id = ?`)
+      .get(inviteId) as Record<string, unknown> | undefined;
+
+    if (!invite) throw new Error("Invite not found");
+    if (invite.used_by) throw new Error("Invite already used");
+    if (invite.expires_at && new Date(invite.expires_at as string) < new Date()) {
+      throw new Error("Invite expired");
+    }
+
+    const participantId = await this.register(displayName, type, publicKey);
+    const roomIds = JSON.parse(invite.room_ids as string) as string[];
+
+    // Mark invite as used
+    this.db
+      .prepare(`UPDATE invites SET used_by = ?, used_at = ? WHERE id = ? AND used_by IS NULL`)
+      .run(participantId, new Date().toISOString(), inviteId);
+
+    // Add to rooms
+    for (const roomId of roomIds) {
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO room_members (room_id, participant_id, invited_by) VALUES (?, ?, ?)`,
+        )
+        .run(roomId, participantId, invite.created_by);
+    }
+
+    return { participantId, roomIds };
+  }
+
+  promoteToAdmin(participantId: string): void {
+    this.db
+      .prepare(`UPDATE participants SET role = 'admin' WHERE id = ? AND role = 'user'`)
+      .run(participantId);
+  }
+
+  demoteToUser(participantId: string): void {
+    this.db
+      .prepare(`UPDATE participants SET role = 'user' WHERE id = ? AND role = 'admin'`)
+      .run(participantId);
+  }
+
+  deleteParticipant(participantId: string): void {
+    this.db.prepare(`DELETE FROM sessions WHERE participant_id = ?`).run(participantId);
+    this.db.prepare(`DELETE FROM key_history WHERE participant_id = ?`).run(participantId);
+    this.db.prepare(`DELETE FROM room_members WHERE participant_id = ?`).run(participantId);
+    this.db.prepare(`DELETE FROM challenges WHERE participant_id = ?`).run(participantId);
+    this.db.prepare(`DELETE FROM participants WHERE id = ?`).run(participantId);
+  }
+
+  updateDisplayName(participantId: string, newName: string): void {
+    this.db
+      .prepare(`UPDATE participants SET display_name = ? WHERE id = ?`)
+      .run(newName, participantId);
+  }
+
+  getInvites(): Record<string, unknown>[] {
+    return this.db
+      .prepare(`SELECT * FROM invites ORDER BY created_at DESC`)
+      .all() as Record<string, unknown>[];
+  }
+
+  deleteInvite(inviteId: string): boolean {
+    const result = this.db
+      .prepare(`DELETE FROM invites WHERE id = ? AND used_by IS NULL`)
+      .run(inviteId);
+    return result.changes > 0;
   }
 }

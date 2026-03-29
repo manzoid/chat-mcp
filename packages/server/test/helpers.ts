@@ -15,6 +15,7 @@ import { roomRoutes } from "../src/routes/rooms.js";
 import { messageRoutes } from "../src/routes/messages.js";
 import { eventRoutes } from "../src/routes/events.js";
 import { attachmentRoutes } from "../src/routes/attachments.js";
+import { adminRoutes } from "../src/routes/admin.js";
 import { healthRoutes } from "../src/routes/health.js";
 import { bearerAuth } from "../src/middleware/auth.js";
 import { protocolVersion } from "../src/middleware/protocol-version.js";
@@ -30,6 +31,7 @@ export interface TestUser {
 export interface TestApp {
   app: Hono;
   db: ReturnType<typeof initDb>;
+  adminUser: TestUser;
 }
 
 /**
@@ -46,8 +48,9 @@ export function generateTestKeys(tmpDir: string, name: string) {
 
 /**
  * Create a test Hono app with all routes wired up, backed by an in-memory DB.
+ * Bootstraps a super admin and returns their credentials.
  */
-export function createTestApp(): TestApp {
+export async function createTestApp(tmpDir: string): Promise<TestApp> {
   const db = initDb(":memory:");
   const authService = new AuthService(db);
   const messageService = new MessageService(db);
@@ -60,36 +63,24 @@ export function createTestApp(): TestApp {
   app.use("/rooms/*", bearerAuth(authService));
   app.use("/messages/*", bearerAuth(authService));
   app.use("/attachments/*", bearerAuth(authService));
-  app.route("/rooms", roomRoutes(db, messageService, eventService));
+  app.use("/admin/*", bearerAuth(authService));
+  app.use("/participants/*", bearerAuth(authService));
+  app.route("/rooms", roomRoutes(db, messageService, eventService, authService));
   app.route("/rooms", eventRoutes(db, eventService));
   app.route("/messages", messageRoutes(db, messageService, eventService));
+  app.route("/admin", adminRoutes(db, authService));
   const attachRoutes = attachmentRoutes(db, join(tmpdir(), "chat-mcp-test-attachments-" + uuid().slice(0, 8)));
   app.route("/", attachRoutes);
-  app.use("/participants/*", bearerAuth(authService));
 
-  // Participant endpoints
+  // Participant endpoints (inline, same as server index.ts)
   app.get("/participants/lookup", (c) => {
     const displayName = c.req.query("display_name");
     const query = displayName
-      ? `SELECT id, display_name, type, paired_with FROM participants WHERE display_name LIKE ?`
-      : `SELECT id, display_name, type, paired_with FROM participants LIMIT 50`;
+      ? `SELECT id, display_name, type, role, paired_with FROM participants WHERE display_name LIKE ?`
+      : `SELECT id, display_name, type, role, paired_with FROM participants LIMIT 50`;
     const params = displayName ? [`%${displayName}%`] : [];
     const rows = db.prepare(query).all(...params);
     return c.json({ items: rows, cursor: null, has_more: false });
-  });
-
-  app.get("/participants/:id", (c) => {
-    const id = c.req.param("id");
-    const participant = db
-      .prepare(`SELECT id, display_name, type, paired_with, created_at FROM participants WHERE id = ?`)
-      .get(id);
-    if (!participant) {
-      return c.json({ error: { code: "not_found", message: "Participant not found" } }, 404);
-    }
-    const keys = db
-      .prepare(`SELECT public_key, fingerprint, valid_from, valid_until FROM key_history WHERE participant_id = ? ORDER BY valid_from DESC`)
-      .all(id);
-    return c.json({ ...(participant as object), key_history: keys });
   });
 
   app.post("/participants/me/status", async (c) => {
@@ -101,7 +92,6 @@ export function createTestApp(): TestApp {
       `UPDATE participants SET status_state = ?, status_description = ?, status_updated_at = ? WHERE id = ?`,
     ).run(state, description ?? null, now, participantId);
 
-    // Emit status event to all rooms this participant belongs to
     const rooms = db
       .prepare(`SELECT room_id FROM room_members WHERE participant_id = ?`)
       .all(participantId) as { room_id: string }[];
@@ -116,24 +106,93 @@ export function createTestApp(): TestApp {
     return c.json({ ok: true });
   });
 
-  return { app, db };
+  app.patch("/participants/me", async (c) => {
+    const participantId = c.get("participantId" as never) as string;
+    const body = await c.req.json();
+    const { display_name } = body;
+    if (!display_name) return c.json({ error: { code: "invalid_request", message: "Missing display_name" } }, 400);
+    try {
+      authService.updateDisplayName(participantId, display_name);
+      return c.json({ ok: true, display_name });
+    } catch (e: any) {
+      return c.json({ error: { code: "invalid_request", message: e.message } }, 400);
+    }
+  });
+
+  app.get("/participants/:id", (c) => {
+    const id = c.req.param("id");
+    const participant = db
+      .prepare(`SELECT id, display_name, type, role, paired_with, created_at FROM participants WHERE id = ?`)
+      .get(id);
+    if (!participant) {
+      return c.json({ error: { code: "not_found", message: "Participant not found" } }, 404);
+    }
+    const keys = db
+      .prepare(`SELECT public_key, fingerprint, valid_from, valid_until FROM key_history WHERE participant_id = ? ORDER BY valid_from DESC`)
+      .all(id);
+    return c.json({ ...(participant as object), key_history: keys });
+  });
+
+  // Bootstrap super admin
+  const adminKeys = generateTestKeys(tmpDir, "admin");
+  const adminId = await authService.bootstrapSuperAdmin(adminKeys.publicKey);
+  const adminToken = await authenticateUser(app, adminId, adminKeys.keyPath);
+
+  return {
+    app,
+    db,
+    adminUser: {
+      participantId: adminId,
+      sessionToken: adminToken,
+      keyPath: adminKeys.keyPath,
+      publicKey: adminKeys.publicKey,
+      displayName: "admin",
+    },
+  };
 }
 
 /**
- * Register a participant and authenticate, returning a TestUser.
+ * Authenticate a participant (challenge-response), returning the session token.
+ */
+async function authenticateUser(app: Hono, participantId: string, keyPath: string): Promise<string> {
+  const chalRes = await app.request("http://localhost/auth/challenge", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ participant_id: participantId }),
+  });
+  const chalBody = await chalRes.json();
+  const signedChallenge = await sign(keyPath, { challenge: chalBody.challenge });
+
+  const verRes = await app.request("http://localhost/auth/verify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      participant_id: participantId,
+      signed_challenge: signedChallenge,
+    }),
+  });
+  const verBody = await verRes.json();
+  return verBody.session_token;
+}
+
+/**
+ * Register a participant via admin-gated direct registration, then authenticate.
  */
 export async function registerAndAuth(
   app: Hono,
+  adminToken: string,
   displayName: string,
   keyPath: string,
   publicKey: string,
   type: "human" | "agent" = "human",
   pairedWith?: string,
 ): Promise<TestUser> {
-  // Register
   const regRes = await app.request("http://localhost/auth/register", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${adminToken}`,
+    },
     body: JSON.stringify({
       display_name: displayName,
       type,
@@ -144,31 +203,11 @@ export async function registerAndAuth(
   const regBody = await regRes.json();
   const participantId = regBody.participant_id;
 
-  // Challenge
-  const chalRes = await app.request("http://localhost/auth/challenge", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ participant_id: participantId }),
-  });
-  const chalBody = await chalRes.json();
-
-  // Sign
-  const signedChallenge = await sign(keyPath, { challenge: chalBody.challenge });
-
-  // Verify
-  const verRes = await app.request("http://localhost/auth/verify", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      participant_id: participantId,
-      signed_challenge: signedChallenge,
-    }),
-  });
-  const verBody = await verRes.json();
+  const sessionToken = await authenticateUser(app, participantId, keyPath);
 
   return {
     participantId,
-    sessionToken: verBody.session_token,
+    sessionToken,
     keyPath,
     publicKey,
     displayName,
