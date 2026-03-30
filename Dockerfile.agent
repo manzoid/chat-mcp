@@ -24,19 +24,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN npm i -g @anthropic-ai/claude-code
 
 # Non-root user (claude --dangerously-skip-permissions refuses to run as root)
-RUN groupadd -g 1001 agent && useradd -u 1001 -g agent -m agent
+RUN groupadd -g 1001 agent && useradd -u 1001 -g agent -m agent \
+    && mkdir -p /home/agent/.claude /home/agent/.claude-json-vol \
+    && chown -R agent:agent /home/agent
 
 # Copy the full built workspace — pnpm's symlink structure stays intact
 COPY --from=build /app /opt/chat-mcp
 RUN chown -R agent:agent /opt/chat-mcp
 
-# Entrypoint
+# Entrypoint scripts
 COPY docker/agent-entrypoint.sh /usr/local/bin/agent-entrypoint.sh
-RUN chmod +x /usr/local/bin/agent-entrypoint.sh
+COPY docker/agent-init.sh /usr/local/bin/agent-init.sh
+RUN chmod +x /usr/local/bin/agent-entrypoint.sh /usr/local/bin/agent-init.sh
 
 RUN mkdir -p /workspace && chown agent:agent /workspace
 
-USER agent
 WORKDIR /workspace
 
-ENTRYPOINT ["agent-entrypoint.sh"]
+# Starts as root to fix volume permissions, then drops to agent user
+ENTRYPOINT ["agent-init.sh"]
