@@ -51,10 +51,13 @@ cat > "$MCP_CONFIG" << EOF
 }
 EOF
 
-# Copy host ~/.claude (mounted read-only) to writable location, then merge MCP config
+# Copy host Claude config (mounted read-only) to writable locations
 mkdir -p "$HOME/.claude"
 if [ -d "$HOME/.claude-host" ]; then
   cp -a "$HOME/.claude-host/." "$HOME/.claude/"
+fi
+if [ -f "$HOME/.claude.json.host" ]; then
+  cp "$HOME/.claude.json.host" "$HOME/.claude.json"
 fi
 if [ -f "$HOME/.claude/settings.json" ]; then
   node -e "

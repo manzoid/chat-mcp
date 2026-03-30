@@ -48,12 +48,15 @@ echo "Building agent image..." >&2
 docker build -q -t chat-mcp-agent -f "$REPO_DIR/Dockerfile.agent" "$REPO_DIR" >&2
 
 # --- Launch container ---
-# --- Mount ~/.claude read-only if it exists (carries auth/settings into container) ---
+# --- Mount Claude config read-only (carries auth/settings into container) ---
 # Mounted read-only so the agent can't modify host config. The entrypoint
 # copies to a writable location before merging MCP config.
 CLAUDE_MOUNT=()
 if [ -d "$HOME/.claude" ]; then
-  CLAUDE_MOUNT=(-v "$HOME/.claude:/home/agent/.claude-host:ro")
+  CLAUDE_MOUNT+=(-v "$HOME/.claude:/home/agent/.claude-host:ro")
+fi
+if [ -f "$HOME/.claude.json" ]; then
+  CLAUDE_MOUNT+=(-v "$HOME/.claude.json:/home/agent/.claude.json.host:ro")
 fi
 
 exec docker run -it --rm \
