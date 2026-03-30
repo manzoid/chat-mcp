@@ -39,7 +39,7 @@ eval $("$SCRIPT_DIR/chat-agent-register" "$PROFILE" "$PROJECT_DIR" "$LETTER")
 
 # --- Build Docker image ---
 echo "Building agent image..." >&2
-docker build -q -t chat-mcp-agent -f "$REPO_DIR/Dockerfile.agent" "$REPO_DIR" >&2
+docker build -t chat-mcp-agent -f "$REPO_DIR/Dockerfile.agent" "$REPO_DIR" >&2
 
 # --- Launch container ---
 # --- Persistent volume for Claude auth (survives container restarts) ---
