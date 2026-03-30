@@ -17,11 +17,18 @@ RUN pnpm --filter @chat-mcp/shared build && pnpm --filter @chat-mcp/channel-plug
 # --- Runtime stage ---
 FROM node:20-slim
 
+# Dev toolchain — enough for a general-purpose coding agent
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    openssh-client git curl \
+    openssh-client git curl wget ca-certificates gnupg \
+    build-essential cmake pkg-config \
+    python3 python3-pip python3-venv \
+    jq ripgrep fd-find tree less vim \
+    zip unzip tar gzip \
+    procps htop \
+    && ln -sf /usr/bin/fdfind /usr/bin/fd \
     && rm -rf /var/lib/apt/lists/*
 
-RUN npm i -g @anthropic-ai/claude-code
+RUN npm i -g @anthropic-ai/claude-code pnpm typescript tsx
 
 # Non-root user (claude --dangerously-skip-permissions refuses to run as root)
 RUN groupadd -g 1001 agent && useradd -u 1001 -g agent -m agent \
