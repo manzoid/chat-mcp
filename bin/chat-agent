@@ -37,6 +37,12 @@ fi
 # --- Register agent identity (runs on host — just API calls) ---
 eval $("$SCRIPT_DIR/chat-agent-register" "$PROFILE" "$PROJECT_DIR" "$LETTER")
 
+# --- Validate registration succeeded ---
+if [ -z "${CHAT_DISPLAY_NAME:-}" ] || [ -z "${CHAT_SSH_KEY_PATH:-}" ]; then
+  echo "ERROR: Agent registration failed. Check your profile and server." >&2
+  exit 1
+fi
+
 # --- Build Docker image ---
 echo "Building agent image..." >&2
 docker build -t chat-mcp-agent -f "$REPO_DIR/Dockerfile.agent" "$REPO_DIR" >&2

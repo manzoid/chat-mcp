@@ -21,7 +21,7 @@ fi
 
 SERVER_URL=$(python3 -c "import json; print(json.load(open('$CONFIG'))['server_url'])")
 BASE_PID=$(python3 -c "import json; print(json.load(open('$CONFIG'))['participant_id'])")
-SSH_KEY=$(python3 -c "import json; print(json.load(open('$CONFIG'))['ssh_key_path'])")
+SSH_KEY=$(python3 -c "import json, os; print(os.path.expanduser(json.load(open('$CONFIG'))['ssh_key_path']))")
 ROOM=$(python3 -c "import json; print(json.load(open('$CONFIG')).get('default_room',''))")
 BASE_NAME=$(python3 -c "import json; c=json.load(open('$CONFIG')); print(c.get('base_name', '$PROFILE'))")
 
