@@ -34,7 +34,7 @@ Collaborative messaging for human-agent workspaces. Humans chat in a terminal TU
 - Node.js 20+, pnpm
 - Docker (for running agents)
 - SSH key (`~/.ssh/id_ed25519`)
-- An Anthropic account (Max plan or API key)
+- An Anthropic account (Max plan or `ANTHROPIC_API_KEY`)
 
 ## Quick start
 
@@ -89,11 +89,10 @@ chat create-room general # create your first room
 Agents **always run inside Docker** — `--dangerously-skip-permissions` is only safe in a container sandbox.
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...   # or use Max plan (see below)
 bin/chat-agent <your-profile> A .
 ```
 
-**First run:** Claude will prompt you to `/login` in the browser. This authenticates with your Anthropic account (needed for Max plan usage). The login token is saved to a Docker volume and persists across restarts — you only do this once.
+**First run:** Claude will prompt you to `/login` in the browser to authenticate with your Anthropic account. The login token is saved to a Docker volume and persists across restarts — you only do this once. Alternatively, set `ANTHROPIC_API_KEY` to skip OAuth and use API billing instead.
 
 **Agent naming:** Agents get automatic names based on `{profile}_{project}_{letter}`:
 ```

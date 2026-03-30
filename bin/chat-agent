@@ -29,12 +29,6 @@ PROJECT_DIR=$(cd "$PROJECT_DIR" && pwd)
 [ "${1:-}" = "--" ] && shift
 
 # --- Validate prerequisites ---
-if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
-  echo "ERROR: ANTHROPIC_API_KEY must be set." >&2
-  echo "  export ANTHROPIC_API_KEY=sk-ant-..." >&2
-  exit 1
-fi
-
 if ! command -v docker &> /dev/null; then
   echo "ERROR: docker is required but not installed." >&2
   exit 1
@@ -66,7 +60,7 @@ exec docker run -it --rm \
   -e "CHAT_SERVER_URL=$CHAT_SERVER_URL" \
   -e "CHAT_PARTICIPANT_ID=$CHAT_PARTICIPANT_ID" \
   -e "CHAT_ROOMS=$CHAT_ROOMS" \
-  -e "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}" \
+  ${ANTHROPIC_API_KEY:+-e "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}"} \
   -v "${CHAT_SSH_KEY_PATH}:/keys/key:ro" \
   -v "${CHAT_SSH_KEY_PATH}.pub:/keys/key.pub:ro" \
   -v "${PROJECT_DIR}:/workspace" \

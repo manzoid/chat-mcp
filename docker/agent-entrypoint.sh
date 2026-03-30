@@ -13,11 +13,6 @@ if [ ! -f "$CHAT_SSH_KEY_PATH" ]; then
   exit 1
 fi
 
-if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
-  echo "ERROR: ANTHROPIC_API_KEY not set" >&2
-  exit 1
-fi
-
 # --- Wait for chat server to be healthy ---
 echo "Waiting for chat server at $CHAT_SERVER_URL ..." >&2
 attempts=0
