@@ -201,6 +201,7 @@ async function subscribeRoom(
     `@${escapeRegex(selfDisplayName)}\\b`,
     "i",
   );
+  let lastSeenMessageId: string | null = null;
 
   for await (const { event, data } of chatClient.subscribeEvents(roomId)) {
     // Update name map on participant join
@@ -232,20 +233,32 @@ async function subscribeRoom(
       // Set status to show we're processing
       chatClient.setStatus("busy", `responding to ${authorName}`).catch(() => {});
 
-      // Fetch recent context so the agent sees the conversation, not just the @mention
+      // Fetch recent context — only messages the agent hasn't seen yet
       let contextBlock = "";
       try {
         const history = await chatClient.getHistory(roomId, undefined, 15);
-        const recent = (history.items ?? [])
-          .filter((m: any) => m.id !== payload.id)
-          .slice(-10)
-          .map((m: any) => {
+        const allMessages = (history.items ?? []).filter((m: any) => m.id !== payload.id);
+
+        // Only include messages after the last one we sent context for
+        let unseen = allMessages;
+        if (lastSeenMessageId) {
+          const idx = allMessages.findIndex((m: any) => m.id === lastSeenMessageId);
+          if (idx >= 0) {
+            unseen = allMessages.slice(idx + 1);
+          }
+        }
+
+        if (unseen.length > 0) {
+          const lines = unseen.slice(-10).map((m: any) => {
             const name = nameMap.get(m.author_id) ?? m.author_id.slice(0, 8);
             return `[${name}]: ${m.content?.text ?? ""}`;
-          })
-          .join("\n");
-        if (recent) {
-          contextBlock = `\nRecent messages in #${roomName}:\n${recent}\n\n`;
+          }).join("\n");
+          contextBlock = `\nRecent messages in #${roomName}:\n${lines}\n\n`;
+        }
+
+        // Mark the latest message as seen
+        if (allMessages.length > 0) {
+          lastSeenMessageId = allMessages[allMessages.length - 1].id;
         }
       } catch {}
 
