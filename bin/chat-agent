@@ -9,7 +9,7 @@
 #   chat-agent alice B ~/code/my-project      # specific project, instance B
 #   chat-agent alice A . -- -c                # resume session
 
-set -euo pipefail
+set -eo pipefail
 
 SOURCE="$0"
 while [ -L "$SOURCE" ]; do SOURCE="$(readlink "$SOURCE")"; done
