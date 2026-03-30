@@ -51,8 +51,11 @@ cat > "$MCP_CONFIG" << EOF
 }
 EOF
 
-# Merge MCP server into existing ~/.claude/settings.json (may be mounted from host)
+# Copy host ~/.claude (mounted read-only) to writable location, then merge MCP config
 mkdir -p "$HOME/.claude"
+if [ -d "$HOME/.claude-host" ]; then
+  cp -a "$HOME/.claude-host/." "$HOME/.claude/"
+fi
 if [ -f "$HOME/.claude/settings.json" ]; then
   node -e "
     const fs = require('fs');
