@@ -51,9 +51,19 @@ cat > "$MCP_CONFIG" << EOF
 }
 EOF
 
-# Also write to global settings as fallback for MCP discovery
+# Merge MCP server into existing ~/.claude/settings.json (may be mounted from host)
 mkdir -p "$HOME/.claude"
-cp "$MCP_CONFIG" "$HOME/.claude/settings.json"
+if [ -f "$HOME/.claude/settings.json" ]; then
+  node -e "
+    const fs = require('fs');
+    const settings = JSON.parse(fs.readFileSync('$HOME/.claude/settings.json', 'utf8'));
+    const mcp = JSON.parse(fs.readFileSync('$MCP_CONFIG', 'utf8'));
+    settings.mcpServers = { ...settings.mcpServers, ...mcp.mcpServers };
+    fs.writeFileSync('$HOME/.claude/settings.json', JSON.stringify(settings, null, 2) + '\n');
+  "
+else
+  cp "$MCP_CONFIG" "$HOME/.claude/settings.json"
+fi
 
 # --- Export env vars for any tools that read them directly ---
 export CHAT_SERVER_URL
