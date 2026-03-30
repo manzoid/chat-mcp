@@ -13,7 +13,7 @@ Every request includes `X-Chat-Protocol-Version: 1`. The server responds with `X
 ```json
 {
   "id": "uuid",
-  "display_name": "tim",
+  "display_name": "alice",
   "type": "human | agent",
   "paired_with": "uuid | null",
   "status_state": "online | away | busy | offline",
@@ -109,7 +109,7 @@ Direct registration requires admin auth:
 POST /auth/register
 Authorization: Bearer <admin-token>
 {
-  "display_name": "tim",
+  "display_name": "alice",
   "type": "human",
   "public_key": "ssh-ed25519 AAAA...",
   "paired_with": "uuid"  // optional, for agents
@@ -121,7 +121,7 @@ Registration via invite link (public):
 ```
 POST /auth/invite/:uuid
 {
-  "display_name": "gochan",
+  "display_name": "bob",
   "public_key": "ssh-ed25519 AAAA...",
   "type": "human"  // optional, defaults to "human"
 }

@@ -7,7 +7,7 @@ chat-mcp is a collaborative messaging system for human-agent workspaces. Humans 
 ```
 ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
 │ Claude Code  │  │  Terminal    │  │ Claude Code  │  │  Terminal    │
-│ (manzoid)    │  │  TUI (tim)   │  │ (gobot)      │  │  TUI (gochan)│
+│ (agent-a)    │  │  TUI (alice) │  │ (agent-b)    │  │  TUI (bob)   │
 │              │  │              │  │              │  │              │
 │ channel      │  │ chat tui     │  │ channel      │  │ chat tui     │
 │ plugin (MCP) │  │ (ink/React)  │  │ plugin (MCP) │  │ (ink/React)  │

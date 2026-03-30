@@ -7,7 +7,7 @@ Collaborative messaging for human-agent workspaces. Humans chat in a terminal TU
 ```
 ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
 │ Claude Code  │  │  Terminal    │  │ Claude Code  │  │  Terminal    │
-│ (manzoid)    │  │  TUI (tim)   │  │ (gobot)      │  │  TUI (gochan)│
+│ (agent-a)    │  │  TUI (alice) │  │ (agent-b)    │  │  TUI (bob)   │
 │              │  │              │  │              │  │              │
 │ channel      │  │ chat tui     │  │ channel      │  │ chat tui     │
 │ plugin       │  │              │  │ plugin       │  │              │
@@ -80,7 +80,7 @@ chat admin invite --room <room-id> --expires 24h
 # → Invite: http://localhost:8808/invite/abc123-uuid
 
 # Send the URL to your teammate. They register with:
-chat auth register --invite <url> --name gochan --key ~/.ssh/id_ed25519.pub
+chat auth register --invite <url> --name bob --key ~/.ssh/id_ed25519.pub
 ```
 
 ### 4. Chat
@@ -101,11 +101,11 @@ Each identity is a profile stored at `~/.config/chat-mcp/profiles/<name>.json`:
 
 ```bash
 # Register creates the default profile
-chat auth register --name tim --key ~/.ssh/id_ed25519.pub
+chat auth register --name alice --key ~/.ssh/id_ed25519.pub
 
 # Use a specific profile
-CHAT_PROFILE=tim chat tui
-CHAT_PROFILE=gochan chat tui
+CHAT_PROFILE=alice chat tui
+CHAT_PROFILE=bob chat tui
 ```
 
 Profile JSON:
@@ -150,17 +150,17 @@ chat admin promote <participant-id>
 Agents get dynamic names based on profile + project directory:
 
 ```
-manzoid_test-intent-map_A
-manzoid_test-intent-map_B
-gobot_chat-mcp_A
+alice_test-intent-map_A
+alice_test-intent-map_B
+bob_chat-mcp_A
 ```
 
 Launch an agent (auto-registers, auto-joins room):
 
 ```bash
-chat-agent manzoid .                           # current dir
-chat-agent manzoid ~/code/test-intent-map      # specific project
-chat-agent manzoid ~/code/api -- -c            # resume session
+chat-agent alice .                           # current dir
+chat-agent alice ~/code/test-intent-map      # specific project
+chat-agent alice ~/code/api -- -c            # resume session
 ```
 
 The `chat-agent` script reads the profile, authenticates as admin, registers a new ephemeral agent identity, joins the room, and launches Claude with the channel plugin.
@@ -168,17 +168,17 @@ The `chat-agent` script reads the profile, authenticates as admin, registers a n
 For containerized agents (full autonomy, sandboxed):
 
 ```bash
-chat-agent-docker manzoid ~/code/my-project
+chat-agent-docker alice ~/code/my-project
 ```
 
 ### 4-terminal setup
 
 | Terminal | Command | Who |
 |---|---|---|
-| T1 | `chat-agent manzoid .` | manzoid_chat-mcp_A (Claude agent) |
-| T2 | `CHAT_PROFILE=tim chat tui` | tim (human) |
-| T3 | `chat-agent gobot .` | gobot_chat-mcp_A (Claude agent) |
-| T4 | `CHAT_PROFILE=gochan chat tui` | gochan (human) |
+| T1 | `chat-agent alice .` | alice_chat-mcp_A (Claude agent) |
+| T2 | `CHAT_PROFILE=alice chat tui` | alice (human) |
+| T3 | `chat-agent bob .` | bob_chat-mcp_A (Claude agent) |
+| T4 | `CHAT_PROFILE=bob chat tui` | bob (human) |
 
 ## Claude Code channel plugin
 
@@ -300,10 +300,10 @@ Each user on their own machine:
 ```bash
 # Install CLI (requires repo clone or npm package)
 # Register against the cloud server
-chat auth register --name gochan --key ~/.ssh/id_ed25519.pub
+chat auth register --name bob --key ~/.ssh/id_ed25519.pub
 
 # Edit profile to point at cloud server
-# ~/.config/chat-mcp/profiles/gochan.json → "server_url": "https://chat.example.com"
+# ~/.config/chat-mcp/profiles/bob.json → "server_url": "https://chat.example.com"
 ```
 
 ### What needs to change for production

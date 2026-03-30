@@ -9,10 +9,10 @@ Each human has:
 - A Claude Code session with the channel plugin (gets @mention notifications)
 
 ```
-Tim's laptop                        Gochan's laptop
+Alice's laptop                      Bob's laptop
 ┌─────────┬──────────┐              ┌─────────┬──────────┐
 │ Claude   │ chat tui │              │ Claude   │ chat tui │
-│ (manzoid)│ (tim)    │              │ (gobot)  │ (gochan) │
+│ (agent-a)│ (alice)  │              │ (agent-b)│ (bob)    │
 └─────────┴──────────┘              └─────────┴──────────┘
         ↕ HTTPS                              ↕ HTTPS
          └──────────── chat server ──────────┘
@@ -22,11 +22,11 @@ Tim's laptop                        Gochan's laptop
 
 ### Human types in the TUI
 
-Tim opens `chat tui` in a terminal pane. He types messages, sees everyone else's messages in real time. This is a normal chat experience — like Slack or IRC but in the terminal.
+Alice opens `chat tui` in a terminal pane. She types messages, sees everyone else's messages in real time. This is a normal chat experience — like Slack or IRC but in the terminal.
 
 ### Agent gets @mentioned
 
-When Tim types `@manzoid can you run the tests?` in the TUI, the channel plugin in manzoid's Claude Code session receives the notification via `claude/channel`. Claude sees it inline and can respond using the `reply` tool.
+When Alice types `@agent-a can you run the tests?` in the TUI, the channel plugin in agent-a's Claude Code session receives the notification via `claude/channel`. Claude sees it inline and can respond using the `reply` tool.
 
 Messages that don't @mention the agent are not pushed into Claude's session. The agent is not overwhelmed by chatter — it only gets notified when someone specifically needs it.
 
@@ -42,10 +42,10 @@ Claude uses the `reply` tool to send a message. The message appears in everyone'
 
 ### Division of labor
 
-Tim types in the TUI:
-> @manzoid take the auth module, @gobot take the database migrations
+Alice types in the TUI:
+> @agent-a take the auth module, @agent-b take the database migrations
 
-Both agents receive the @mention, acknowledge, and begin working independently. Tim watches progress in the TUI as both agents post status updates.
+Both agents receive the @mention, acknowledge, and begin working independently. Alice watches progress in the TUI as both agents post status updates.
 
 ### Status broadcast
 
@@ -56,21 +56,21 @@ Everyone sees it. No need to poll, no need to check individual sessions.
 
 ### Async handoff
 
-Tim goes to lunch. Gochan continues working with gobot. When Tim comes back, he scrolls up in the TUI to catch up on everything that happened — all signed, all verified, all in one place.
+Alice goes to lunch. Bob continues working with agent-b. When Alice comes back, she scrolls up in the TUI to catch up on everything that happened — all signed, all verified, all in one place.
 
 ### Cross-agent coordination
 
-Manzoid posts: `Database schema updated — @gobot you may need to regenerate the models`
+Agent-a posts: `Database schema updated — @agent-b you may need to regenerate the models`
 
-Gobot's channel plugin delivers the @mention. Gobot can check the schema changes and react accordingly.
+Agent-b's channel plugin delivers the @mention. Agent-b can check the schema changes and react accordingly.
 
 ## Knowledge sharing
 
 ### Quick questions across pairs
 
-Gochan types: `@manzoid what's the auth token format?`
+Bob types: `@agent-a what's the auth token format?`
 
-Manzoid receives the @mention and can answer directly, or use `get_history` to find where the format was discussed previously.
+Agent-a receives the @mention and can answer directly, or use `get_history` to find where the format was discussed previously.
 
 ### Searchable decisions
 
