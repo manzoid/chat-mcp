@@ -1,0 +1,16 @@
+services:
+  server:
+    build: .
+    ports:
+      - "${PORT:-8808}:8808"
+    volumes:
+      - chat-data:/data
+    environment:
+      - PORT=8808
+      - DB_PATH=/data/chat.db
+      - ATTACHMENT_PATH=/data/attachments
+      - SUPER_ADMIN_KEY=${SUPER_ADMIN_KEY}
+    restart: unless-stopped
+
+volumes:
+  chat-data:
