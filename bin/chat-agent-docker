@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Launch a Claude agent in Docker, connected to the chat room.
+#
+# Usage: chat-agent-docker <profile> <letter> [project-dir]
+#   chat-agent-docker manzoid A .
+#   chat-agent-docker manzoid B ~/code/my-project
+
+set -e
+SOURCE="$0"; while [ -L "$SOURCE" ]; do SOURCE="$(readlink "$SOURCE")"; done; SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROFILE="${1:?Usage: chat-agent-docker <profile> <letter> [project-dir]}"
+LETTER="${2:?Usage: chat-agent-docker <profile> <letter> [project-dir]}"
+PROJECT_DIR="${3:-.}"
+PROJECT_DIR=$(cd "$PROJECT_DIR" && pwd)
+
+eval $("$SCRIPT_DIR/chat-agent-register" "$PROFILE" "$PROJECT_DIR" "$LETTER")
+
+docker build -q -t chat-mcp-agent -f "$REPO_DIR/Dockerfile.agent" "$REPO_DIR" >&2
+
+exec docker run -it --rm \
+  --name "chat-agent-${CHAT_DISPLAY_NAME}" \
+  -e "CHAT_SERVER_URL=$CHAT_SERVER_URL" \
+  -e "CHAT_PARTICIPANT_ID=$CHAT_PARTICIPANT_ID" \
+  -e "CHAT_ROOMS=$CHAT_ROOMS" \
+  -e "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}" \
+  -v "${CHAT_SSH_KEY_PATH}:/keys/key:ro" \
+  -v "${CHAT_SSH_KEY_PATH}.pub:/keys/key.pub:ro" \
+  -v "${PROJECT_DIR}:/workspace" \
+  --add-host=host.docker.internal:host-gateway \
+  chat-mcp-agent

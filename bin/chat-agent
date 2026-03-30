@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Launch a Claude Code session connected to the chat room as an agent.
+#
+# Usage: chat-agent <profile> <letter> [project-dir] [-- claude args...]
+#   chat-agent manzoid A                        # cwd, instance A
+#   chat-agent manzoid B ~/code/my-project      # specific project, instance B
+#   chat-agent manzoid A . -- -c                # resume session
+
+set -e
+SOURCE="$0"; while [ -L "$SOURCE" ]; do SOURCE="$(readlink "$SOURCE")"; done; SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+PROFILE="${1:?Usage: chat-agent <profile> <letter> [project-dir] [-- claude args...]}"
+LETTER="${2:?Usage: chat-agent <profile> <letter> [project-dir] [-- claude args...]}"
+shift 2
+
+PROJECT_DIR="$(pwd)"
+if [ $# -gt 0 ] && [ "$1" != "--" ]; then
+  PROJECT_DIR="$1"
+  shift
+fi
+PROJECT_DIR=$(cd "$PROJECT_DIR" && pwd)
+[ "${1:-}" = "--" ] && shift
+
+eval $("$SCRIPT_DIR/chat-agent-register" "$PROFILE" "$PROJECT_DIR" "$LETTER")
+
+cd "$PROJECT_DIR"
+exec claude \
+  --dangerously-load-development-channels server:chat-mcp \
+  "$@"

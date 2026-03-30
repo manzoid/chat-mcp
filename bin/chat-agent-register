@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+# Register an agent instance with the chat server, or reuse if it already exists.
+#
+# Usage: eval $(chat-agent-register <profile> <project-dir> <letter>)
+# Output: exports CHAT_SERVER_URL, CHAT_PARTICIPANT_ID, CHAT_SSH_KEY_PATH, CHAT_ROOMS, CHAT_DISPLAY_NAME
+
+set -e
+
+PROFILE="$1"
+PROJECT_DIR="$2"
+LETTER="${3:?Usage: chat-agent-register <profile> <project-dir> <letter>}"
+SOURCE="$0"; while [ -L "$SOURCE" ]; do SOURCE="$(readlink "$SOURCE")"; done; SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+AUTH_HELPER="$REPO_DIR/packages/shared/scripts/auth-helper.ts"
+
+CONFIG="$HOME/.config/chat-mcp/profiles/${PROFILE}.json"
+if [ ! -f "$CONFIG" ]; then
+  echo "No profile '$PROFILE'" >&2
+  exit 1
+fi
+
+SERVER_URL=$(python3 -c "import json; print(json.load(open('$CONFIG'))['server_url'])")
+BASE_PID=$(python3 -c "import json; print(json.load(open('$CONFIG'))['participant_id'])")
+SSH_KEY=$(python3 -c "import json; print(json.load(open('$CONFIG'))['ssh_key_path'])")
+ROOM=$(python3 -c "import json; print(json.load(open('$CONFIG')).get('default_room',''))")
+BASE_NAME=$(python3 -c "import json; c=json.load(open('$CONFIG')); print(c.get('base_name', '$PROFILE'))")
+
+# Derive project slug from git remote (falls back to directory basename)
+if git -C "$PROJECT_DIR" rev-parse --git-dir > /dev/null 2>&1; then
+  REMOTE_URL=$(git -C "$PROJECT_DIR" remote get-url origin 2>/dev/null || echo "")
+  if [ -n "$REMOTE_URL" ]; then
+    PROJECT_SLUG=$(echo "$REMOTE_URL" | sed 's/.*\///' | sed 's/\.git$//' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')
+  else
+    PROJECT_SLUG=$(basename "$PROJECT_DIR" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')
+  fi
+  ROOT_COMMIT=$(git -C "$PROJECT_DIR" rev-list --max-parents=0 HEAD 2>/dev/null | head -1)
+else
+  PROJECT_SLUG=$(basename "$PROJECT_DIR" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')
+  ROOT_COMMIT=""
+fi
+
+DISPLAY_NAME="${BASE_NAME}_${PROJECT_SLUG}_${LETTER}"
+
+# Auth as base profile (needs admin/super to register)
+BASE_TOKEN=$(npx --prefix "$REPO_DIR/packages/shared" tsx "$AUTH_HELPER" "$SERVER_URL" "$BASE_PID" "$SSH_KEY" 2>/dev/null)
+if [ -z "$BASE_TOKEN" ]; then
+  echo "Failed to authenticate base profile" >&2
+  exit 1
+fi
+
+# Check if this identity already exists
+EXISTING_PID=$(curl -s -H "Authorization: Bearer $BASE_TOKEN" \
+  "${SERVER_URL}/participants/lookup?display_name=${DISPLAY_NAME}" \
+  | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+matches = [p['id'] for p in data.get('items', []) if p['display_name'] == '${DISPLAY_NAME}']
+print(matches[0] if matches else '')
+" 2>/dev/null)
+
+if [ -n "$EXISTING_PID" ]; then
+  echo "Reusing $DISPLAY_NAME ($EXISTING_PID)" >&2
+  NEW_PID="$EXISTING_PID"
+else
+  echo "Registering $DISPLAY_NAME..." >&2
+  PUB_KEY=$(cat "${SSH_KEY}.pub")
+  NEW_PID=$(curl -s -X POST "${SERVER_URL}/auth/register" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $BASE_TOKEN" \
+    -d "{\"display_name\": \"$DISPLAY_NAME\", \"type\": \"agent\", \"public_key\": \"$PUB_KEY\"}" \
+    | python3 -c "import sys, json; print(json.load(sys.stdin)['participant_id'])" 2>/dev/null)
+
+  if [ -z "$NEW_PID" ]; then
+    echo "Registration failed" >&2
+    exit 1
+  fi
+
+  # Invite to room
+  if [ -n "$ROOM" ]; then
+    curl -s -X POST "${SERVER_URL}/rooms/${ROOM}/invite" \
+      -H "Authorization: Bearer $BASE_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d "{\"participant_id\": \"$NEW_PID\"}" > /dev/null 2>&1
+  fi
+
+  echo "Registered $DISPLAY_NAME ($NEW_PID)" >&2
+fi
+
+# Auth the agent
+NEW_TOKEN=$(npx --prefix "$REPO_DIR/packages/shared" tsx "$AUTH_HELPER" "$SERVER_URL" "$NEW_PID" "$SSH_KEY" 2>/dev/null)
+if [ -z "$NEW_TOKEN" ]; then
+  echo "Auth failed" >&2
+  exit 1
+fi
+
+cat <<EOF
+export CHAT_SERVER_URL="$SERVER_URL"
+export CHAT_PARTICIPANT_ID="$NEW_PID"
+export CHAT_SESSION_TOKEN="$NEW_TOKEN"
+export CHAT_SSH_KEY_PATH="$SSH_KEY"
+export CHAT_ROOMS="$ROOM"
+export CHAT_DISPLAY_NAME="$DISPLAY_NAME"
+export CHAT_ROOT_COMMIT="${ROOT_COMMIT:-}"
+EOF
