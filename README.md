@@ -29,86 +29,120 @@ Collaborative messaging for human-agent workspaces. Humans chat in a terminal TU
 - **`@chat-mcp/cli`** — `chat` command with 17 subcommands + interactive TUI
 - **`@chat-mcp/channel-plugin`** — MCP server with `claude/channel` capability. Pushes @mention notifications into Claude Code sessions. 9 tools (reply, react, search, etc.)
 
-## Quick start (local)
+## Prerequisites
 
-### Prerequisites
-
-- Node.js 20+
-- pnpm
+- Node.js 20+, pnpm
+- Docker (for running agents)
 - SSH key (`~/.ssh/id_ed25519`)
+- An Anthropic account (Max plan or API key)
 
-### 1. Install and start the server
+## Quick start
+
+### 1. Clone and install
 
 ```bash
 git clone git@github.com:manzoid/chat-mcp.git
 cd chat-mcp
 pnpm install
+```
 
-# Start server — SUPER_ADMIN_KEY bootstraps you as the super admin
+### 2. Start the server
+
+**Option A: Docker (recommended)**
+
+```bash
+SUPER_ADMIN_KEY="$(cat ~/.ssh/id_ed25519.pub)" docker compose up -d
+```
+
+**Option B: Local**
+
+```bash
 cd packages/server
 SUPER_ADMIN_KEY="$(cat ~/.ssh/id_ed25519.pub)" \
 DB_PATH=~/.local/share/chat-mcp/chat.db \
 npx tsx src/index.ts
 ```
 
-### 2. Install the CLI globally
+The `SUPER_ADMIN_KEY` bootstraps you as the super admin on first start.
+
+### 3. Set up the CLI
+
+Add `bin/` to your PATH (or symlink the scripts):
 
 ```bash
-# From the repo root — create a wrapper at ~/bin/chat
-cat > ~/bin/chat << 'EOF'
-#!/usr/bin/env bash
-exec npx tsx /path/to/chat-mcp/packages/cli/src/index.ts "$@"
-EOF
-chmod +x ~/bin/chat
+# From the repo root
+export PATH="$PWD/bin:$PATH"
+
+# Or add to your shell profile for persistence:
+echo 'export PATH="/path/to/chat-mcp/bin:$PATH"' >> ~/.zshrc
 ```
 
-### 3. Log in as super admin and set up
+### 4. Log in and create a room
 
 ```bash
-# Auth (your SSH key matches the SUPER_ADMIN_KEY)
-chat auth login
-
-# Create a room
-chat create-room collab
+chat auth login          # authenticates via SSH challenge-response
+chat create-room general # create your first room
 ```
 
-### 4. Invite others
+### 5. Launch an agent
+
+Agents **always run inside Docker** — `--dangerously-skip-permissions` is only safe in a container sandbox.
 
 ```bash
-# Create an invite link (you're the admin)
+export ANTHROPIC_API_KEY=sk-ant-...   # or use Max plan (see below)
+bin/chat-agent <your-profile> A .
+```
+
+**First run:** Claude will prompt you to `/login` in the browser. This authenticates with your Anthropic account (needed for Max plan usage). The login token is saved to a Docker volume and persists across restarts — you only do this once.
+
+**Agent naming:** Agents get automatic names based on `{profile}_{project}_{letter}`:
+```
+alice_chat-mcp_A     ← profile "alice", project "chat-mcp", instance A
+alice_my-api_B       ← profile "alice", project "my-api", instance B
+```
+
+Use this name to @mention the agent in chat.
+
+### 6. Chat with your agent
+
+In another terminal:
+
+```bash
+CHAT_PROFILE=<your-profile> chat tui
+```
+
+Then type (using your agent's actual name):
+
+```
+@alice_chat-mcp_A help me fix the tests
+```
+
+The agent receives @mentions in real time via SSE and responds using the channel plugin's `reply` tool.
+
+### Multi-user setup
+
+| Terminal | Command | Who |
+|---|---|---|
+| T1 | `bin/chat-agent alice A .` | alice_chat-mcp_A (Claude agent, Docker) |
+| T2 | `CHAT_PROFILE=alice chat tui` | alice (human, host) |
+| T3 | `bin/chat-agent bob A .` | bob_chat-mcp_A (Claude agent, Docker) |
+| T4 | `CHAT_PROFILE=bob chat tui` | bob (human, host) |
+
+## Inviting teammates
+
+```bash
+# Create an invite link (admin only)
 chat admin invite --room <room-id> --expires 24h
 # → Invite: http://localhost:8808/invite/abc123-uuid
 
-# Send the URL to your teammate. They register with:
+# Teammate registers with the invite:
 chat auth register --invite <url> --name bob --key ~/.ssh/id_ed25519.pub
-```
-
-### 4. Chat
-
-```bash
-# Interactive TUI (run in its own terminal)
-chat tui
-
-# Or one-shot commands
-chat send "hello"
-chat read
-chat search "keyword"
 ```
 
 ## Profiles
 
 Each identity is a profile stored at `~/.config/chat-mcp/profiles/<name>.json`:
 
-```bash
-# Register creates the default profile
-chat auth register --name alice --key ~/.ssh/id_ed25519.pub
-
-# Use a specific profile
-CHAT_PROFILE=alice chat tui
-CHAT_PROFILE=bob chat tui
-```
-
-Profile JSON:
 ```json
 {
   "server_url": "http://localhost:8808",
@@ -117,6 +151,10 @@ Profile JSON:
   "session_token": "...",
   "default_room": "uuid"
 }
+```
+
+```bash
+CHAT_PROFILE=alice chat tui    # use a specific profile
 ```
 
 ## Access control
@@ -129,90 +167,28 @@ Three roles: `super`, `admin`, `user`.
 | `admin` | Yes | Yes | Yes | No |
 | `user` | No | No | No | No |
 
-- **Super admin** is bootstrapped from `SUPER_ADMIN_KEY` env var on first server start
-- **Registration is invite-only** — `POST /auth/register` requires admin token
-- **New users register via invite links** — `POST /invite/:uuid`
-- Admins can't delete other admins; only super can
-
 ```bash
-# Admin creates invite
-chat admin invite --room <id> --expires 24h
-
-# Admin lists participants
-chat admin participants
-
-# Super promotes someone to admin
-chat admin promote <participant-id>
+chat admin participants           # list all participants
+chat admin promote <participant>  # promote to admin (super only)
+chat admin demote <participant>   # demote to user (super only)
+chat admin remove <participant>   # remove a participant
 ```
 
-## Agents (Docker-only)
-
-Agents **always run inside Docker** — `--dangerously-skip-permissions` is only safe inside a container sandbox. There is no local execution path.
-
-Agents get dynamic names based on profile + project directory:
-
-```
-alice_test-intent-map_A
-alice_test-intent-map_B
-bob_chat-mcp_A
-```
-
-### Prerequisites
-
-- Docker installed and running
-- `ANTHROPIC_API_KEY` exported in your shell
-
-### Launch an agent
-
-```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-
-chat-agent alice A                           # cwd, instance A
-chat-agent alice B ~/code/test-intent-map    # specific project, instance B
-chat-agent alice A . -- -c                   # resume session
-```
+## How agents work
 
 The `chat-agent` script:
-1. Reads your profile and authenticates as admin (on the host — just API calls)
-2. Registers an ephemeral agent identity and joins the default room
-3. Builds the `chat-mcp-agent` Docker image (multi-stage, cached)
-4. Launches the container with SSH keys (read-only), project dir mounted at `/workspace`, and Claude Code running with `--dangerously-skip-permissions` + `--dangerously-load-development-channels`
-5. The container waits for the chat server to be healthy before starting Claude
+1. Registers an agent identity with the chat server (runs on host — just API calls)
+2. Builds the `chat-mcp-agent` Docker image (multi-stage, cached after first build)
+3. Launches a container with:
+   - SSH keys mounted read-only (for message signing)
+   - Project directory mounted at `/workspace`
+   - `~/.claude` mounted read-only as seed config (copied into container)
+   - A persistent Docker volume for Claude auth (survives `--rm`)
+   - `--dangerously-skip-permissions` + `--dangerously-load-development-channels`
+4. The container waits for the chat server health check before starting Claude
+5. The channel plugin connects via SSE, filters for @mentions, pushes notifications into Claude
 
-### 4-terminal setup
-
-| Terminal | Command | Who |
-|---|---|---|
-| T1 | `chat-agent alice A .` | alice_chat-mcp_A (Claude agent, Docker) |
-| T2 | `CHAT_PROFILE=alice chat tui` | alice (human, host) |
-| T3 | `chat-agent bob A .` | bob_chat-mcp_A (Claude agent, Docker) |
-| T4 | `CHAT_PROFILE=bob chat tui` | bob (human, host) |
-
-## Claude Code channel plugin
-
-The channel plugin is an MCP server that:
-- Connects to the chat server via SSE
-- Filters for @mentions of the agent's display name
-- Pushes @mention notifications into the Claude session via `claude/channel`
-- Exposes 9 tools: `reply`, `react`, `get_history`, `search`, `get_thread`, `pin`, `edit_message`, `delete_message`, `set_status`
-
-Configured in `.mcp.json`:
-```json
-{
-  "mcpServers": {
-    "chat-mcp": {
-      "command": "npx",
-      "args": ["--prefix", "./packages/channel-plugin", "tsx", "./packages/channel-plugin/src/index.ts"]
-    }
-  }
-}
-```
-
-Environment variables (set by `chat-agent` script):
-- `CHAT_SERVER_URL` — server URL
-- `CHAT_PARTICIPANT_ID` — agent's participant UUID
-- `CHAT_SSH_KEY_PATH` — path to agent's SSH private key
-- `CHAT_ROOMS` — comma-separated room UUIDs
+The agent container includes a full dev toolchain: python3, gcc, ripgrep, fd, jq, pnpm, tsx, git, and more.
 
 ## CLI commands
 
@@ -222,7 +198,7 @@ chat auth login       Authenticate (challenge-response)
 chat rooms            List rooms
 chat create-room      Create a room (admin)
 chat join             Set active room
-chat who              List participants
+chat who              List room participants
 chat topic            Set room topic
 chat send             Send a signed message
 chat read             Read messages (with local sig verification)
@@ -255,90 +231,39 @@ chat admin remove     Remove a participant (admin)
 - **Local verification**: `chat read` verifies each message's signature and shows `[verified]` / `[UNVERIFIED]`
 - **Edit history**: all edits are preserved with original signatures
 - **Container sandboxing**: `chat-agent` always runs agents in Docker — `--dangerously-skip-permissions` never runs on the host
+- **Read-only host mounts**: `~/.claude` and SSH keys are mounted read-only into the agent container
 
-## AWS deployment
+## Server deployment
 
-### What you need
+### Docker (recommended)
 
-- EC2 instance (or ECS/Fargate) running the server
-- ALB for TLS termination (HTTPS)
+```bash
+# Uses the production Dockerfile (multi-stage build)
+SUPER_ADMIN_KEY="$(cat ~/.ssh/id_ed25519.pub)" docker compose up -d
+```
+
+The server stores its SQLite database in a Docker volume at `/data`.
+
+### AWS
+
+- EC2 or ECS/Fargate running the server container
+- ALB for TLS termination (HTTPS 443 → port 8808)
+  - Health check: `GET /health`
+  - Idle timeout: 300s (for SSE streams)
 - EBS volume for SQLite database
-- S3 bucket for attachments (optional — local disk works for small teams)
-- Security group: allow inbound 443 (HTTPS)
+- Point DNS at the ALB: `chat.example.com`
 
-### Server setup
-
-```bash
-# On the EC2 instance
-git clone git@github.com:manzoid/chat-mcp.git
-cd chat-mcp
-pnpm install
-
-# Run with persistent storage
-DB_PATH=/data/chat.db \
-ATTACHMENT_PATH=/data/attachments \
-PORT=8808 \
-node packages/server/dist/index.js
+Each user edits their profile to point at the server:
+```json
+{ "server_url": "https://chat.example.com" }
 ```
 
-Or with a process manager:
-```bash
-# systemd unit, pm2, or docker
-pm2 start packages/server/dist/index.js --name chat-mcp \
-  --env DB_PATH=/data/chat.db \
-  --env ATTACHMENT_PATH=/data/attachments \
-  --env PORT=8808
-```
-
-### ALB configuration
-
-- Listener: HTTPS 443 → target group port 8808
-- Health check: `GET /health`
-- Idle timeout: increase to 300s (for SSE streams)
-- Sticky sessions: not needed (single instance)
-
-### DNS
-
-Point your domain at the ALB: `chat.example.com → ALB`
-
-### Client configuration
-
-Each user on their own machine:
-
-```bash
-# Install CLI (requires repo clone or npm package)
-# Register against the cloud server
-chat auth register --name bob --key ~/.ssh/id_ed25519.pub
-
-# Edit profile to point at cloud server
-# ~/.config/chat-mcp/profiles/bob.json → "server_url": "https://chat.example.com"
-```
-
-### What needs to change for production
+### Production considerations
 
 - **Build first**: `pnpm -r build` then run `node dist/index.js` instead of `tsx`
-- **S3 attachments**: swap local file storage for S3 (requires code change in `packages/server/src/routes/attachments.ts`)
-- **Backup**: periodic EBS snapshots or SQLite `.backup` to S3
-- **Monitoring**: the `/health` endpoint returns uptime and protocol version
-- **Scaling**: SQLite handles ~50 concurrent connections. For more, swap to Postgres (queries are simple, migration is straightforward)
-
-### Docker (alternative)
-
-```dockerfile
-FROM node:20-slim
-WORKDIR /app
-COPY . .
-RUN npm i -g pnpm && pnpm install && pnpm -r build
-EXPOSE 8808
-ENV DB_PATH=/data/chat.db
-ENV ATTACHMENT_PATH=/data/attachments
-CMD ["node", "packages/server/dist/index.js"]
-```
-
-```bash
-docker build -t chat-mcp .
-docker run -p 8808:8808 -v chat-data:/data chat-mcp
-```
+- **Backup**: periodic EBS snapshots or SQLite `.backup`
+- **Monitoring**: `/health` returns uptime and protocol version
+- **Scaling**: SQLite handles ~50 concurrent connections. For more, swap to Postgres
 
 ## Tests
 
@@ -346,18 +271,6 @@ docker run -p 8808:8808 -v chat-data:/data chat-mcp
 pnpm -r test
 # 92 tests: 25 shared (canonical JSON, signing), 51 server (integration + multi-user)
 ```
-
-Test coverage includes:
-- SSH challenge-response auth
-- Message signing + verification
-- Tampered signature rejection
-- Replay nonce rejection
-- Stale timestamp rejection
-- Multi-user interactions (cross-user permissions, outsider access denied)
-- 14-step e2e signing lifecycle (send → verify → react → thread → pin → edit → search → events → delete)
-- Key rotation with session revocation
-- FTS5 search
-- Event polling
 
 ## License
 
