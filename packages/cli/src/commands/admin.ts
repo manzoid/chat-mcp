@@ -84,3 +84,30 @@ adminCommand
     await api.delete(`/admin/participants/${id}`);
     console.log(`Removed ${id.slice(0, 8)}`);
   });
+
+adminCommand
+  .command("onboard")
+  .description("Generate a setup command for a new teammate")
+  .requiredOption("--name <name>", "Display name for the new user")
+  .option("--room <id>", "Room to invite to (defaults to your default room)")
+  .option("--expires <hours>", "Invite expiry in hours", "24")
+  .action(async (opts) => {
+    const config = loadConfig();
+    const api = new ApiClient(config);
+
+    const roomId = opts.room || config.default_room;
+    if (!roomId) {
+      console.error("No room specified and no default room in profile. Use --room <id>.");
+      process.exit(1);
+    }
+
+    const body: Record<string, unknown> = { room_ids: [roomId] };
+    if (opts.expires) body.expires_in_hours = parseInt(opts.expires);
+
+    const result = await api.post("/admin/invites", body);
+    const serverUrl = config.server_url.replace(/\/$/, "");
+
+    console.log(`\nShare this with ${opts.name}:\n`);
+    console.log(`  CHAT_PROFILE=${opts.name} chat init ${serverUrl} --invite ${result.id} --name ${opts.name}`);
+    console.log(`\nInvite expires: ${result.expires_at || "never"}`);
+  });

@@ -13,6 +13,7 @@ import { searchCommand } from "./commands/search.js";
 import { pollCommand } from "./commands/poll.js";
 import { tuiCommand } from "./commands/tui.js";
 import { adminCommand } from "./commands/admin.js";
+import { initCommand } from "./commands/init.js";
 
 const program = new Command()
   .name("chat")
@@ -39,6 +40,7 @@ program.addCommand(searchCommand);
 program.addCommand(pollCommand);
 program.addCommand(tuiCommand);
 program.addCommand(adminCommand);
+program.addCommand(initCommand);
 
 program.parseAsync(process.argv).catch((e) => {
   console.error(e.message);

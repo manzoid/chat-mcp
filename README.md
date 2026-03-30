@@ -127,16 +127,24 @@ The agent receives @mentions in real time via SSE and responds using the channel
 | T3 | `bin/chat-agent bob A .` | bob_chat-mcp_A (Claude agent, Docker) |
 | T4 | `CHAT_PROFILE=bob chat tui` | bob (human, host) |
 
-## Inviting teammates
+## Adding teammates (or yourself on another machine)
+
+**Admin generates a setup command:**
 
 ```bash
-# Create an invite link (admin only)
-chat admin invite --room <room-id> --expires 24h
-# → Invite: http://localhost:8808/invite/abc123-uuid
-
-# Teammate registers with the invite:
-chat auth register --invite <url> --name bob --key ~/.ssh/id_ed25519.pub
+chat admin onboard --name bob
+# → Share this with bob:
+#     CHAT_PROFILE=bob chat init http://your-server:8808 --invite a1b2c3 --name bob
 ```
+
+**Teammate pastes it:**
+
+```bash
+CHAT_PROFILE=bob chat init http://your-server:8808 --invite a1b2c3 --name bob
+# → Registered, authenticated, profile saved. Done.
+```
+
+The invite is single-use and expires in 24 hours (configurable with `--expires`).
 
 ## Profiles
 
