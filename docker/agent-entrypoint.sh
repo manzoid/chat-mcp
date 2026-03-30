@@ -51,12 +51,18 @@ cat > "$MCP_CONFIG" << EOF
 }
 EOF
 
-# Copy host Claude config (mounted read-only) to writable locations
-mkdir -p "$HOME/.claude"
-if [ -d "$HOME/.claude-host" ]; then
+# --- Seed from host config on first run; persistent volume keeps auth after /login ---
+# ~/.claude is a named volume. On first run it's empty, so seed from host.
+# On subsequent runs it already has the OAuth token from /login.
+if [ -d "$HOME/.claude-host" ] && [ ! -f "$HOME/.claude/.seeded" ]; then
   cp -a "$HOME/.claude-host/." "$HOME/.claude/"
+  touch "$HOME/.claude/.seeded"
 fi
-if [ -f "$HOME/.claude.json.host" ]; then
+# ~/.claude.json: use volume copy if it exists (has OAuth token), else seed from host
+CLAUDE_JSON_VOL="$HOME/.claude-json-vol/.claude.json"
+if [ -f "$CLAUDE_JSON_VOL" ]; then
+  cp "$CLAUDE_JSON_VOL" "$HOME/.claude.json"
+elif [ -f "$HOME/.claude.json.host" ]; then
   cp "$HOME/.claude.json.host" "$HOME/.claude.json"
 fi
 if [ -f "$HOME/.claude/settings.json" ]; then
@@ -79,8 +85,14 @@ export CHAT_ROOMS
 
 # --- Launch Claude Code ---
 cd /workspace
-exec claude \
+claude \
   --dangerously-skip-permissions \
   --dangerously-load-development-channels server:chat-mcp \
   --mcp-config "$MCP_CONFIG" \
   "$@"
+STATUS=$?
+
+# Persist .claude.json to volume on exit (saves OAuth token from /login)
+cp -f "$HOME/.claude.json" "$CLAUDE_JSON_VOL" 2>/dev/null || true
+
+exit $STATUS

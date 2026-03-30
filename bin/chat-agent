@@ -48,9 +48,11 @@ echo "Building agent image..." >&2
 docker build -q -t chat-mcp-agent -f "$REPO_DIR/Dockerfile.agent" "$REPO_DIR" >&2
 
 # --- Launch container ---
-# --- Mount Claude config read-only (carries auth/settings into container) ---
-# Mounted read-only so the agent can't modify host config. The entrypoint
-# copies to a writable location before merging MCP config.
+# --- Persistent volume for Claude auth (survives container restarts) ---
+# First run requires /login; subsequent runs reuse the OAuth token.
+CLAUDE_VOL="chat-agent-claude-home"
+
+# --- Mount host Claude config read-only as seed for first run ---
 CLAUDE_MOUNT=()
 if [ -d "$HOME/.claude" ]; then
   CLAUDE_MOUNT+=(-v "$HOME/.claude:/home/agent/.claude-host:ro")
@@ -68,6 +70,8 @@ exec docker run -it --rm \
   -v "${CHAT_SSH_KEY_PATH}:/keys/key:ro" \
   -v "${CHAT_SSH_KEY_PATH}.pub:/keys/key.pub:ro" \
   -v "${PROJECT_DIR}:/workspace" \
+  -v "${CLAUDE_VOL}:/home/agent/.claude" \
+  -v "${CLAUDE_VOL}-json:/home/agent/.claude-json-vol" \
   "${CLAUDE_MOUNT[@]}" \
   --add-host=host.docker.internal:host-gateway \
   chat-mcp-agent "$@"
