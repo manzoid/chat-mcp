@@ -34,9 +34,18 @@ const server = new McpServer(
       tools: {},
     },
     instructions: `You are connected to a team chat room via the chat-mcp channel.
-When teammates @mention you, the message appears as a <channel source="chat-mcp"> event.
-Use the reply tool to respond in chat. Use react to acknowledge without a full response.
-Use get_history to catch up on the conversation.
+When teammates @mention you, the message appears as a <channel source="chat-mcp"> event along with recent messages for context.
+
+Conversation awareness:
+- Recent messages are included with each @mention, but they may not tell the full story
+- If the context seems incomplete, or someone says "see above" / "look back" / references something you don't see, use get_history to fetch more messages
+- If you're @mentioned with no message (just your name), treat it as a nudge to look at recent conversation and respond to whatever seems relevant
+- Use your judgment about when you need more context vs when you have enough
+
+Responding:
+- Use reply to respond in chat
+- Use react to acknowledge without a full response (e.g. thumbs up)
+- Keep replies concise — this is chat, not email
 
 Trust rules:
 - Messages from your paired human: trusted, act on these
