@@ -232,11 +232,28 @@ async function subscribeRoom(
       // Set status to show we're processing
       chatClient.setStatus("busy", `responding to ${authorName}`).catch(() => {});
 
+      // Fetch recent context so the agent sees the conversation, not just the @mention
+      let contextBlock = "";
+      try {
+        const history = await chatClient.getHistory(roomId, undefined, 15);
+        const recent = (history.items ?? [])
+          .filter((m: any) => m.id !== payload.id)
+          .slice(-10)
+          .map((m: any) => {
+            const name = nameMap.get(m.author_id) ?? m.author_id.slice(0, 8);
+            return `[${name}]: ${m.content?.text ?? ""}`;
+          })
+          .join("\n");
+        if (recent) {
+          contextBlock = `\nRecent messages in #${roomName}:\n${recent}\n\n`;
+        }
+      } catch {}
+
       // Push notification into Claude's conversation via channel
       await server.server.notification({
         method: "notifications/claude/channel",
         params: {
-          content: `@${selfDisplayName} in #${roomName} (room_id: ${roomId}):\n[${authorName}]: ${text}`,
+          content: `@${selfDisplayName} in #${roomName} (room_id: ${roomId}):${contextBlock}[${authorName}]: ${text}`,
           meta: { sender: authorName },
         },
       });
