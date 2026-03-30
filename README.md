@@ -145,7 +145,9 @@ chat admin participants
 chat admin promote <participant-id>
 ```
 
-## Agents (auto-registration)
+## Agents (Docker-only)
+
+Agents **always run inside Docker** — `--dangerously-skip-permissions` is only safe inside a container sandbox. There is no local execution path.
 
 Agents get dynamic names based on profile + project directory:
 
@@ -155,30 +157,36 @@ alice_test-intent-map_B
 bob_chat-mcp_A
 ```
 
-Launch an agent (auto-registers, auto-joins room):
+### Prerequisites
+
+- Docker installed and running
+- `ANTHROPIC_API_KEY` exported in your shell
+
+### Launch an agent
 
 ```bash
-chat-agent alice .                           # current dir
-chat-agent alice ~/code/test-intent-map      # specific project
-chat-agent alice ~/code/api -- -c            # resume session
+export ANTHROPIC_API_KEY=sk-ant-...
+
+chat-agent alice A                           # cwd, instance A
+chat-agent alice B ~/code/test-intent-map    # specific project, instance B
+chat-agent alice A . -- -c                   # resume session
 ```
 
-The `chat-agent` script reads the profile, authenticates as admin, registers a new ephemeral agent identity, joins the room, and launches Claude with the channel plugin.
-
-For containerized agents (full autonomy, sandboxed):
-
-```bash
-chat-agent-docker alice ~/code/my-project
-```
+The `chat-agent` script:
+1. Reads your profile and authenticates as admin (on the host — just API calls)
+2. Registers an ephemeral agent identity and joins the default room
+3. Builds the `chat-mcp-agent` Docker image (multi-stage, cached)
+4. Launches the container with SSH keys (read-only), project dir mounted at `/workspace`, and Claude Code running with `--dangerously-skip-permissions` + `--dangerously-load-development-channels`
+5. The container waits for the chat server to be healthy before starting Claude
 
 ### 4-terminal setup
 
 | Terminal | Command | Who |
 |---|---|---|
-| T1 | `chat-agent alice .` | alice_chat-mcp_A (Claude agent) |
-| T2 | `CHAT_PROFILE=alice chat tui` | alice (human) |
-| T3 | `chat-agent bob .` | bob_chat-mcp_A (Claude agent) |
-| T4 | `CHAT_PROFILE=bob chat tui` | bob (human) |
+| T1 | `chat-agent alice A .` | alice_chat-mcp_A (Claude agent, Docker) |
+| T2 | `CHAT_PROFILE=alice chat tui` | alice (human, host) |
+| T3 | `chat-agent bob A .` | bob_chat-mcp_A (Claude agent, Docker) |
+| T4 | `CHAT_PROFILE=bob chat tui` | bob (human, host) |
 
 ## Claude Code channel plugin
 
@@ -246,7 +254,7 @@ chat admin remove     Remove a participant (admin)
 - **TOFU key cache**: CLI caches key fingerprints locally, warns on change
 - **Local verification**: `chat read` verifies each message's signature and shows `[verified]` / `[UNVERIFIED]`
 - **Edit history**: all edits are preserved with original signatures
-- **Container sandboxing**: `chat-agent-docker` runs agents in Docker with full autonomy but no host filesystem access
+- **Container sandboxing**: `chat-agent` always runs agents in Docker — `--dangerously-skip-permissions` never runs on the host
 
 ## AWS deployment
 

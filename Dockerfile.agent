@@ -1,31 +1,35 @@
+# --- Build stage: compile shared + channel-plugin ---
+FROM node:20-slim AS build
+
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+WORKDIR /app
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY packages/shared/package.json packages/shared/
+COPY packages/channel-plugin/package.json packages/channel-plugin/
+RUN pnpm install --frozen-lockfile
+
+COPY packages/shared/ packages/shared/
+COPY packages/channel-plugin/ packages/channel-plugin/
+RUN pnpm --filter @chat-mcp/shared build && pnpm --filter @chat-mcp/channel-plugin build
+
+# --- Runtime stage ---
 FROM node:20-slim
 
-# Install ssh-keygen (needed for message signing) and git
-RUN apt-get update && apt-get install -y openssh-client git && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openssh-client git curl \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install pnpm and Claude Code
-RUN npm i -g pnpm @anthropic-ai/claude-code
+RUN npm i -g @anthropic-ai/claude-code
 
-# Set up workspace
+# Copy the full built workspace — pnpm's symlink structure stays intact
+COPY --from=build /app /opt/chat-mcp
+
+# Entrypoint
+COPY docker/agent-entrypoint.sh /usr/local/bin/agent-entrypoint.sh
+RUN chmod +x /usr/local/bin/agent-entrypoint.sh
+
 WORKDIR /workspace
 
-# Copy the chat-mcp repo (for channel plugin)
-COPY . /opt/chat-mcp
-RUN cd /opt/chat-mcp && pnpm install --frozen-lockfile
-
-# The project to work on gets mounted at /workspace
-# SSH key gets mounted at /keys
-# Profile config gets mounted at /config
-
-# Entry point: launch Claude with channel plugin
-ENTRYPOINT ["/bin/bash", "-c", "\
-  export CHAT_SERVER_URL=${CHAT_SERVER_URL:-http://host.docker.internal:8808} && \
-  export CHAT_PARTICIPANT_ID=${CHAT_PARTICIPANT_ID} && \
-  export CHAT_SSH_KEY_PATH=/keys/key && \
-  export CHAT_ROOMS=${CHAT_ROOMS} && \
-  cd /opt/chat-mcp && \
-  exec claude \
-    --dangerously-skip-permissions \
-    --dangerously-load-development-channels server:chat-mcp \
-    --add-dir /workspace \
-    \"$@\"", "--"]
+ENTRYPOINT ["agent-entrypoint.sh"]

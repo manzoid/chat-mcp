@@ -6,7 +6,6 @@ node_modules
 LICENSE
 .env*
 packages/cli
-packages/channel-plugin
 Dockerfile*
 docker-compose*
 scripts
