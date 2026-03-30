@@ -42,7 +42,7 @@ fi
 DISPLAY_NAME="${BASE_NAME}_${PROJECT_SLUG}_${LETTER}"
 
 # Auth as base profile (needs admin/super to register)
-BASE_TOKEN=$(npx --prefix "$REPO_DIR/packages/shared" tsx "$AUTH_HELPER" "$SERVER_URL" "$BASE_PID" "$SSH_KEY" 2>/dev/null)
+BASE_TOKEN=$(npx tsx "$AUTH_HELPER" "$SERVER_URL" "$BASE_PID" "$SSH_KEY" 2>/dev/null)
 if [ -z "$BASE_TOKEN" ]; then
   echo "Failed to authenticate base profile" >&2
   exit 1
@@ -87,7 +87,7 @@ else
 fi
 
 # Auth the agent
-NEW_TOKEN=$(npx --prefix "$REPO_DIR/packages/shared" tsx "$AUTH_HELPER" "$SERVER_URL" "$NEW_PID" "$SSH_KEY" 2>/dev/null)
+NEW_TOKEN=$(npx tsx "$AUTH_HELPER" "$SERVER_URL" "$NEW_PID" "$SSH_KEY" 2>/dev/null)
 if [ -z "$NEW_TOKEN" ]; then
   echo "Auth failed" >&2
   exit 1

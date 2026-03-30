@@ -256,6 +256,8 @@ function App({ config, roomId, roomName, initialMessages, participants }: AppPro
   const { exit } = useApp();
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [nameMap, setNameMap] = useState(participants);
+  const nameMapRef = useRef(nameMap);
+  nameMapRef.current = nameMap;
   const [status, setStatus] = useState("connected");
   const [busyParticipants, setBusyParticipants] = useState<Map<string, string>>(new Map());
 
@@ -264,6 +266,24 @@ function App({ config, roomId, roomName, initialMessages, participants }: AppPro
     : undefined;
 
   const participantNames = [...nameMap.values()];
+
+  // Resolve an unknown participant ID to a display name
+  const resolveAuthor = useCallback(async (authorId: string): Promise<string> => {
+    const known = nameMapRef.current.get(authorId);
+    if (known) return known;
+    try {
+      const res = await fetch(`${config.server_url}/participants/${authorId}`, {
+        headers: { Authorization: `Bearer ${config.session_token}`, "X-Chat-Protocol-Version": "1" },
+      });
+      if (res.ok) {
+        const p = await res.json();
+        const name = p.display_name ?? authorId.slice(0, 8);
+        setNameMap((prev) => { const next = new Map(prev); next.set(authorId, name); return next; });
+        return name;
+      }
+    } catch {}
+    return authorId.slice(0, 8);
+  }, [config.server_url, config.session_token]);
 
   // SSE connection
   useEffect(() => {
@@ -335,20 +355,29 @@ function App({ config, roomId, roomName, initialMessages, participants }: AppPro
       try {
         const payload = JSON.parse(data);
         if (event === "message.created") {
-          const authorName =
-            nameMap.get(payload.author_id) ?? payload.author_id?.slice(0, 8) ?? "?";
+          const authorId = payload.author_id;
+          const knownName = nameMapRef.current.get(authorId);
+          const tempName = knownName ?? authorId?.slice(0, 8) ?? "?";
           setMessages((prev) => [
             ...prev,
             {
               id: payload.id,
-              authorId: payload.author_id,
-              authorName,
+              authorId,
+              authorName: tempName,
               text: payload.content?.text ?? "",
               time: formatTime(payload.created_at),
               edited: false,
               reactions: [],
             },
           ]);
+          // If unknown, resolve and update
+          if (!knownName && authorId) {
+            resolveAuthor(authorId).then((name) => {
+              setMessages((prev) =>
+                prev.map((m) => m.id === payload.id ? { ...m, authorName: name } : m),
+              );
+            });
+          }
         } else if (event === "message.edited") {
           setMessages((prev) =>
             prev.map((m) =>
@@ -376,7 +405,7 @@ function App({ config, roomId, roomName, initialMessages, participants }: AppPro
           );
         } else if (event === "participant.status") {
           const pid = payload.participant_id;
-          const name = nameMap.get(pid) ?? pid?.slice(0, 8) ?? "?";
+          const name = nameMapRef.current.get(pid) ?? pid?.slice(0, 8) ?? "?";
           if (payload.state === "busy") {
             setBusyParticipants((prev) => {
               const next = new Map(prev);
