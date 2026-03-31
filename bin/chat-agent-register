@@ -50,7 +50,8 @@ fi
 
 # Check if this identity already exists
 EXISTING_PID=$(curl -s -H "Authorization: Bearer $BASE_TOKEN" \
-  "${SERVER_URL}/participants/lookup?display_name=${DISPLAY_NAME}" \
+  -H "X-Chat-Protocol-Version: 1" \
+  "${SERVER_URL}/admin/participants" \
   | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
@@ -64,14 +65,15 @@ if [ -n "$EXISTING_PID" ]; then
 else
   echo "Registering $DISPLAY_NAME..." >&2
   PUB_KEY=$(cat "${SSH_KEY}.pub")
-  NEW_PID=$(curl -s -X POST "${SERVER_URL}/auth/register" \
+  REGISTER_RESPONSE=$(curl -s -X POST "${SERVER_URL}/auth/register" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer $BASE_TOKEN" \
-    -d "{\"display_name\": \"$DISPLAY_NAME\", \"type\": \"agent\", \"public_key\": \"$PUB_KEY\"}" \
-    | python3 -c "import sys, json; print(json.load(sys.stdin)['participant_id'])" 2>/dev/null)
+    -H "X-Chat-Protocol-Version: 1" \
+    -d "{\"display_name\": \"$DISPLAY_NAME\", \"type\": \"agent\", \"public_key\": \"$PUB_KEY\"}")
+  NEW_PID=$(echo "$REGISTER_RESPONSE" | python3 -c "import sys, json; print(json.load(sys.stdin).get('participant_id',''))" 2>/dev/null)
 
   if [ -z "$NEW_PID" ]; then
-    echo "Registration failed" >&2
+    echo "Registration failed: $REGISTER_RESPONSE" >&2
     exit 1
   fi
 
