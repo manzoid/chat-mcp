@@ -166,6 +166,27 @@ export function adminRoutes(db: Database.Database, authService: AuthService) {
     return c.json({ ok: true, role });
   });
 
+  // Update participant (e.g. set paired_with)
+  app.patch("/participants/:id", async (c) => {
+    const adminId = requireAdmin(c);
+    if (!adminId) {
+      return c.json(
+        { error: { code: "forbidden", message: "Admin access required" } },
+        403,
+      );
+    }
+
+    const targetId = c.req.param("id");
+    const body = await c.req.json();
+
+    if (body.paired_with !== undefined) {
+      db.prepare(`UPDATE participants SET paired_with = ? WHERE id = ?`)
+        .run(body.paired_with, targetId);
+    }
+
+    return c.json({ ok: true });
+  });
+
   // Delete participant
   app.delete("/participants/:id", (c) => {
     const actorId = c.get("participantId" as never) as string;

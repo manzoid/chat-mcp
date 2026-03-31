@@ -69,7 +69,7 @@ else
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer $BASE_TOKEN" \
     -H "X-Chat-Protocol-Version: 1" \
-    -d "{\"display_name\": \"$DISPLAY_NAME\", \"type\": \"agent\", \"public_key\": \"$PUB_KEY\"}")
+    -d "{\"display_name\": \"$DISPLAY_NAME\", \"type\": \"agent\", \"public_key\": \"$PUB_KEY\", \"paired_with\": \"$BASE_PID\"}")
   NEW_PID=$(echo "$REGISTER_RESPONSE" | python3 -c "import sys, json; print(json.load(sys.stdin).get('participant_id',''))" 2>/dev/null)
 
   if [ -z "$NEW_PID" ]; then
